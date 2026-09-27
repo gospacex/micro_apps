@@ -19,6 +19,8 @@ replace github.com/gospacex/otelx => ../otelx
 replace github.com/kitexx/kitex-framework => ../rpcx
 
 require (
+	github.com/cloudwego/kitex v0.16.3
+	github.com/cloudwego/prutal v0.1.3
 	github.com/gospacex/cachex v0.0.0-00010101000000-000000000000
 	github.com/gospacex/configx v0.0.0
 	github.com/gospacex/dbx v0.0.0-00010101000000-000000000000
@@ -53,7 +55,6 @@ require (
 	github.com/cloudwego/frugal v0.3.1 // indirect
 	github.com/cloudwego/gopkg v0.2.0 // indirect
 	github.com/cloudwego/hertz v0.10.6 // indirect
-	github.com/cloudwego/kitex v0.16.3 // indirect
 	github.com/cloudwego/localsession v0.2.1 // indirect
 	github.com/cloudwego/netpoll v0.7.5 // indirect
 	github.com/cloudwego/runtimex v0.1.1 // indirect
