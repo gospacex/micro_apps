@@ -27,35 +27,35 @@ type OrderItem struct {
 
 // OrderCompleted 下单完成事件
 type OrderCompleted struct {
-	OrderID   int64       `json:"order_id"`
-	UserID    int64       `json:"user_id"`
-	Amount    int64       `json:"amount"` // 分
-	Items     []OrderItem `json:"items"`
-	SchemaVer int         `json:"schema_ver"`
-	TraceID   string      `json:"trace_id,omitempty"`
-	OccurredAt int64      `json:"occurred_at"` // unix 毫秒
+	OrderID    int64       `json:"order_id"`
+	UserID     int64       `json:"user_id"`
+	Amount     int64       `json:"amount"` // 分
+	Items      []OrderItem `json:"items"`
+	SchemaVer  int         `json:"schema_ver"`
+	TraceID    string      `json:"trace_id,omitempty"`
+	OccurredAt int64       `json:"occurred_at"` // unix 毫秒
 }
 
 // CouponExchanged 用券核销事件
 type CouponExchanged struct {
-	UserID    int64  `json:"user_id"`
-	CouponID  int64  `json:"coupon_id"`
-	OrderID   int64  `json:"order_id"`
-	Discount  int64  `json:"discount"` // 分
-	SchemaVer int    `json:"schema_ver"`
-	TraceID   string `json:"trace_id,omitempty"`
-	OccurredAt int64 `json:"occurred_at"`
+	UserID     int64  `json:"user_id"`
+	CouponID   int64  `json:"coupon_id"`
+	OrderID    int64  `json:"order_id"`
+	Discount   int64  `json:"discount"` // 分
+	SchemaVer  int    `json:"schema_ver"`
+	TraceID    string `json:"trace_id,omitempty"`
+	OccurredAt int64  `json:"occurred_at"`
 }
 
 // PointsGranted 积分发放事件（链路终点事件，无下游消费者）
 type PointsGranted struct {
-	UserID    int64  `json:"user_id"`
-	Points    int    `json:"points"`
-	Source    string `json:"source"` // "order.completed" / "coupon.exchanged" / "job.retry"
-	OrderID   int64  `json:"order_id,omitempty"`
-	SchemaVer int    `json:"schema_ver"`
-	TraceID   string `json:"trace_id,omitempty"`
-	OccurredAt int64 `json:"occurred_at"`
+	UserID     int64  `json:"user_id"`
+	Points     int    `json:"points"`
+	Source     string `json:"source"` // "order.completed" / "coupon.exchanged" / "job.retry"
+	OrderID    int64  `json:"order_id,omitempty"`
+	SchemaVer  int    `json:"schema_ver"`
+	TraceID    string `json:"trace_id,omitempty"`
+	OccurredAt int64  `json:"occurred_at"`
 }
 
 // Marshal 统一序列化入口（事件体 JSON 字节）
