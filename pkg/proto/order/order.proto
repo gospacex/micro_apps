@@ -1,0 +1,98 @@
+syntax = "proto3";
+
+package order;
+
+option go_package = "hubx/micro_apps/pkg/kitex_gen/order";
+
+message OrderItem {
+  int64 product_id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  int64 unit_price = 4; // 分
+}
+
+message CreateOrderReq {
+  int64 user_id = 1;
+  repeated OrderItem items = 2;
+}
+
+message CreateOrderResp {
+  int64 user_id = 1;
+  int64 order_id = 2;
+  string order_no = 3;
+  int64 total_amount = 4; // 分
+  int64 code = 5;
+  string message = 6;
+}
+
+message GetOrderReq {
+  int64 user_id = 1;
+  int64 order_id = 2;
+}
+
+message GetOrderResp {
+  int64 user_id = 1;
+  int64 order_id = 2;
+  string order_no = 3;
+  string status = 4;
+  int64 total_amount = 5;
+  int64 paid_amount = 6;
+  repeated OrderItem items = 7;
+  int64 code = 8;
+  string message = 9;
+}
+
+// Report 4 表 JOIN 报表（orders ⋈ order_items ⋈ order_status_log ⋈ refund_records，矩阵锚点）
+message ReportReq {
+  int64 user_id = 1;
+  string from_date = 2; // yyyy-MM-dd
+  string to_date = 3;
+}
+
+message ReportRow {
+  string order_no = 1;
+  string status = 2;
+  int64 total_amount = 3;
+  int64 refund_amount = 4;
+  int32 item_count = 5;
+  int32 status_change_count = 6;
+}
+
+message ReportResp {
+  int64 user_id = 1;
+  repeated ReportRow rows = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// ListOrders 只读流水（job 对账数据源）
+message ListOrdersReq {
+  int64 user_id = 1;
+  string from_date = 2;
+  string to_date = 3;
+  int32 limit = 4;
+}
+
+message OrderFlow {
+  int64 order_id = 1;
+  int64 user_id = 2;
+  string order_no = 3;
+  string status = 4;
+  int64 total_amount = 5;
+  int64 created_at = 6; // unix 秒
+}
+
+message ListOrdersResp {
+  int64 user_id = 1;
+  repeated OrderFlow flows = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// Order 是 srv-order 领域原子服务（库表私有：order_db）
+service Order {
+  rpc CreateOrder(CreateOrderReq) returns (CreateOrderResp);
+  rpc GetOrder(GetOrderReq) returns (GetOrderResp);
+  rpc Report(ReportReq) returns (ReportResp);
+  rpc ListOrders(ListOrdersReq) returns (ListOrdersResp);
+}

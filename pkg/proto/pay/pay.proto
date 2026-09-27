@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package pay;
+
+option go_package = "hubx/micro_apps/pkg/kitex_gen/pay";
+
+message PayReq {
+  int64 user_id = 1;
+  int64 order_id = 2;
+  string channel = 3; // alipay / wechat / union
+}
+
+message PayResp {
+  int64 user_id = 1;
+  string pay_order_no = 2;
+  string status = 3; // pending / success
+  int64 amount = 4; // 分
+  int64 code = 5;
+  string message = 6;
+}
+
+message PayCallbackReq {
+  int64 user_id = 1;
+  string pay_order_no = 2;
+  string channel = 3;
+  string raw_body = 4;
+  bool success = 5;
+}
+
+message PayCallbackResp {
+  int64 user_id = 1;
+  bool accepted = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// ListPayFlows 只读流水（job 对账数据源）
+message ListPayFlowsReq {
+  int64 user_id = 1;
+  string from_date = 2;
+  string to_date = 3;
+  int32 limit = 4;
+}
+
+message PayFlow {
+  int64 pay_order_id = 1;
+  string pay_order_no = 2;
+  int64 order_id = 3;
+  int64 amount = 4;
+  string status = 5;
+  int64 created_at = 6; // unix 秒
+}
+
+message ListPayFlowsResp {
+  int64 user_id = 1;
+  repeated PayFlow flows = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// Pay 是 srv-pay 领域原子服务（库表私有：pay_db）
+service Pay {
+  rpc Pay(PayReq) returns (PayResp);
+  rpc Callback(PayCallbackReq) returns (PayCallbackResp);
+  rpc ListPayFlows(ListPayFlowsReq) returns (ListPayFlowsResp);
+}

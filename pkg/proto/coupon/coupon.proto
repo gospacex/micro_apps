@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package coupon;
+
+option go_package = "hubx/micro_apps/pkg/kitex_gen/coupon";
+
+// Consume 核销（幂等：user_coupons 唯一约束 (user_id, coupon_id) 防重）
+message ConsumeReq {
+  int64 user_id = 1;
+  int64 coupon_id = 2;
+  int64 order_id = 3;
+}
+
+message ConsumeResp {
+  int64 user_id = 1;
+  int64 coupon_id = 2;
+  int64 discount = 3; // 分
+  int64 code = 4;
+  string message = 5;
+}
+
+// GrantPoints 积分发放（job 调用入口）
+message GrantPointsReq {
+  int64 user_id = 1;
+  int32 points = 2;
+  string source = 3; // order.completed / coupon.exchanged / job.retry
+  int64 order_id = 4;
+}
+
+message GrantPointsResp {
+  int64 user_id = 1;
+  int32 points = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+message ListCouponsReq {
+  int64 user_id = 1;
+  bool include_used = 2;
+}
+
+message CouponInfo {
+  int64 coupon_id = 1;
+  string name = 2;
+  int64 discount = 3;
+  string type = 4;
+  string status = 5; // held / used / expired
+  int64 used_order_id = 6;
+}
+
+message ListCouponsResp {
+  int64 user_id = 1;
+  repeated CouponInfo coupons = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// Coupon 是 srv-coupon 领域原子服务（库表私有：coupon_db）
+service Coupon {
+  rpc Consume(ConsumeReq) returns (ConsumeResp);
+  rpc GrantPoints(GrantPointsReq) returns (GrantPointsResp);
+  rpc ListCoupons(ListCouponsReq) returns (ListCouponsResp);
+}

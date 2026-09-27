@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package product;
+
+option go_package = "hubx/micro_apps/pkg/kitex_gen/product";
+
+message ProductInfo {
+  int64 product_id = 1;
+  string title = 2;
+  int64 price = 3; // 分
+  int32 stock = 4;
+  string category_name = 5;
+}
+
+message GetProductReq {
+  int64 user_id = 1;
+  int64 product_id = 2;
+}
+
+message GetProductResp {
+  int64 user_id = 1;
+  ProductInfo product = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+message ReserveStockReq {
+  int64 user_id = 1;
+  int64 product_id = 2;
+  int32 quantity = 3;
+}
+
+message ReserveStockResp {
+  int64 user_id = 1;
+  int64 product_id = 2;
+  bool ok = 3;
+  int64 code = 4;
+  string message = 5;
+}
+
+message ListProductsReq {
+  int64 user_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListProductsResp {
+  int64 user_id = 1;
+  repeated ProductInfo products = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// Product 是 srv-product 领域原子服务（库表私有：product_db）
+service Product {
+  rpc GetProduct(GetProductReq) returns (GetProductResp);
+  rpc ReserveStock(ReserveStockReq) returns (ReserveStockResp);
+  rpc ListProducts(ListProductsReq) returns (ListProductsResp);
+}

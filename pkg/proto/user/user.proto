@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package user;
+
+// go_package 与 hubx/micro_apps 模块路径对齐（kitex_gen 提交入库，不依赖 kitex CLI 验收）
+option go_package = "hubx/micro_apps/pkg/kitex_gen/user";
+
+message RegisterReq {
+  int64 user_id = 1; // 预留自生成 ID；注册侧传 0
+  string username = 2;
+  string password = 3;
+  string phone = 4;
+}
+
+message RegisterResp {
+  int64 user_id = 1;
+  int64 code = 2;
+  string message = 3;
+}
+
+message LoginReq {
+  int64 user_id = 1;
+  string username = 2;
+  string password = 3;
+}
+
+message LoginResp {
+  int64 user_id = 1;
+  string token = 2;
+  int64 expire_at = 3; // unix 秒
+  int64 code = 4;
+  string message = 5;
+}
+
+message GetProfileReq {
+  int64 user_id = 1;
+}
+
+message GetProfileResp {
+  int64 user_id = 1;
+  string username = 2;
+  string nickname = 3;
+  string avatar = 4;
+  string city = 5;
+  int32 level = 6;
+  int64 code = 7;
+  string message = 8;
+}
+
+message CheckUserReq {
+  int64 user_id = 1;
+}
+
+message CheckUserResp {
+  int64 user_id = 1;
+  bool active = 2;
+  int64 code = 3;
+  string message = 4;
+}
+
+// User 是 srv-user 领域原子服务（库表私有：user_db）
+service User {
+  rpc Register(RegisterReq) returns (RegisterResp);
+  rpc Login(LoginReq) returns (LoginResp);
+  rpc GetProfile(GetProfileReq) returns (GetProfileResp);
+  rpc CheckUser(CheckUserReq) returns (CheckUserResp);
+}
