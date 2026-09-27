@@ -16,21 +16,31 @@ replace github.com/gospacex/mqx => ../mqx
 
 replace github.com/gospacex/otelx => ../otelx
 
+// 驱动子模块（cachex/redis、mqx/kafka 各自是独立 go module，
+// 主模块 replace 不覆盖其子路径）
+replace github.com/gospacex/cachex/redis => ../cachex/redis
+
+replace github.com/gospacex/mqx/kafka => ../mqx/kafka
+
 replace github.com/kitexx/kitex-framework => ../rpcx
 
 require (
 	github.com/cloudwego/kitex v0.16.3
 	github.com/cloudwego/prutal v0.1.3
-	github.com/gospacex/cachex v0.0.0-00010101000000-000000000000
+	github.com/gospacex/cachex v0.0.0
+	github.com/gospacex/cachex/redis v0.0.0
 	github.com/gospacex/configx v0.0.0
 	github.com/gospacex/dbx v0.0.0-00010101000000-000000000000
 	github.com/gospacex/logx v0.0.0
 	github.com/gospacex/mqx v0.0.1
+	github.com/gospacex/mqx/kafka v0.0.0
 	github.com/gospacex/otelx v0.0.0-00010101000000-000000000000
 	github.com/gospacex/webx v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/consul/api v1.34.5
 	github.com/kitexx/kitex-framework v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.10.2
+	go.opentelemetry.io/otel v1.46.0
+	go.opentelemetry.io/otel/trace v1.46.0
 )
 
 require (
@@ -59,11 +69,13 @@ require (
 	github.com/cloudwego/netpoll v0.7.5 // indirect
 	github.com/cloudwego/runtimex v0.1.1 // indirect
 	github.com/cloudwego/thriftgo v0.4.5 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -115,8 +127,10 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/otel v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/jaeger v1.17.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0 // indirect
@@ -124,7 +138,6 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.45.0 // indirect
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
-	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect

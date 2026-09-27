@@ -1,0 +1,125 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1790511749368,
+  "projectRoot": "/Users/hyx/work/gowork/src/hubx/micro_apps",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "go",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "export CGO_ENABLED=0 && go mod tidy 2>&1 | tail -5 && go build ./... && echo BUILD_OK",
+    "testCommand": "gofmt -w infra/nacos/loader.go && gofmt -l . && echo GOFMT_CLEAN && export CGO_ENABLED=0 && go test -race ./pkg/config/... 2>&1 | tail -5",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1790511749346,
+      "keyFiles": []
+    },
+    "openspec": {
+      "path": "openspec",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790511749347,
+      "keyFiles": []
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1790511749347,
+      "keyFiles": []
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1790511749347,
+      "keyFiles": [
+        "tools.go"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "infra/telemetry/provider_test.go",
+      "accessCount": 5,
+      "lastAccessed": 1790512120304,
+      "type": "file"
+    },
+    {
+      "path": "infra/drivers/drivers.go",
+      "accessCount": 4,
+      "lastAccessed": 1790515075593,
+      "type": "file"
+    },
+    {
+      "path": "go.mod",
+      "accessCount": 2,
+      "lastAccessed": 1790519622738,
+      "type": "file"
+    },
+    {
+      "path": "infra/telemetry/provider.go",
+      "accessCount": 1,
+      "lastAccessed": 1790511994663,
+      "type": "file"
+    },
+    {
+      "path": "infra/telemetry/layers.go",
+      "accessCount": 1,
+      "lastAccessed": 1790512003019,
+      "type": "file"
+    },
+    {
+      "path": "pkg/config/trace.go",
+      "accessCount": 1,
+      "lastAccessed": 1790514724113,
+      "type": "file"
+    },
+    {
+      "path": "pkg/config/trace_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1790514758874,
+      "type": "file"
+    },
+    {
+      "path": "infra/nacos/loader.go",
+      "accessCount": 1,
+      "lastAccessed": 1790514820070,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}
