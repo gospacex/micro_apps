@@ -8,6 +8,8 @@ replace github.com/gospacex/configx => ../configx
 
 replace github.com/gospacex/logx => ../logx
 
+replace github.com/gospacex/traceflag => ../traceflag
+
 replace github.com/gospacex/dbx => ../dbx
 
 replace github.com/gospacex/cachex => ../cachex
@@ -15,6 +17,11 @@ replace github.com/gospacex/cachex => ../cachex
 replace github.com/gospacex/mqx => ../mqx
 
 replace github.com/gospacex/otelx => ../otelx
+
+// dbx 的 go.mod 依赖 gospacex/hubx 与 gospacex/traceflag（均为本地目录，
+// 模块路径与 github 路径一致）；dbx 的 config/orm 子包不直接 import 它们，
+// 仅 MVS 图闭环需要，目录 replace 即可。
+replace github.com/gospacex/hubx => ../hubx/hubx
 
 // 驱动子模块（cachex/redis、mqx/kafka 各自是独立 go module，
 // 主模块 replace 不覆盖其子路径）
@@ -30,7 +37,7 @@ require (
 	github.com/gospacex/cachex v0.0.0
 	github.com/gospacex/cachex/redis v0.0.0
 	github.com/gospacex/configx v0.0.0
-	github.com/gospacex/dbx v0.0.0-00010101000000-000000000000
+	github.com/gospacex/dbx v0.0.0
 	github.com/gospacex/logx v0.0.0
 	github.com/gospacex/mqx v0.0.1
 	github.com/gospacex/mqx/kafka v0.0.0
@@ -41,9 +48,13 @@ require (
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
+	gorm.io/driver/sqlite v1.6.0
+	gorm.io/gorm v1.31.2
 )
 
 require (
+	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/alibabacloud-go/debug v0.0.0-20190504072949-9472017b5c68 // indirect
 	github.com/alibabacloud-go/tea v1.1.17 // indirect
 	github.com/alibabacloud-go/tea-utils v1.4.4 // indirect
@@ -72,15 +83,19 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fatih/structtag v1.2.0 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
+	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
+	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
+	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
+	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gospacex/traceflag v0.0.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -93,7 +108,13 @@ require (
 	github.com/hashicorp/serf v0.10.4 // indirect
 	github.com/iancoleman/strcase v0.2.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
+	github.com/jackc/pgx/v5 v5.5.5 // indirect
+	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jhump/protoreflect v1.8.2 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.3.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kitex-contrib/obs-opentelemetry v0.3.0 // indirect
@@ -101,6 +122,8 @@ require (
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
+	github.com/mattn/go-sqlite3 v1.14.32 // indirect
+	github.com/microsoft/go-mssqldb v1.7.2 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -161,4 +184,7 @@ require (
 	gopkg.in/logger.v1 v1.0.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gorm.io/driver/mysql v1.6.0 // indirect
+	gorm.io/driver/postgres v1.5.7 // indirect
+	gorm.io/driver/sqlserver v1.5.4 // indirect
 )
