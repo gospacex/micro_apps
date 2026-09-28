@@ -223,12 +223,12 @@ micro_apps/
 
 **文件：** 创建 `docker/compose.yaml`、`docker/mysql/init.sql`、`docker/Dockerfile`、`configs/trace.yaml`、`configs/services/*.yaml` ×11、`configs/seed-nacos.sh`
 
-- [ ] `compose.yaml`：mysql8（`init.sql` 挂载进 `/docker-entrypoint-initdb.d`）/ bitnami kafka KRaft（加 `KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true`）/ consul:1.18+（server+http 8500+dns 8600）/ nacos standalone（8848）/ redis:7 / jaeger all-in-one（4317 gRPC + 16686 UI）；健康检查各容器
-- [ ] `init.sql`：建 5 库 5 账号（`user_rw@%` 等，`GRANT` 各自库），表结构与规格第 3 节一致（外键不建——微服务惯例不依赖跨库 FK）
-- [ ] `configs/services/*.yaml` ×11：每个服务 `xmiddleware.sqlx.databases.<self>`（连自己那个库的 DSN，密码走 env 占位）+ `xmiddleware.cachex.instances.<self>`（redis）+ `xmiddleware.mqx.instances.<self>`（kafka，按该服务是否生产/消费事件选择性声明）
-- [ ] `configs/trace.yaml`：规格第 5 节那份（enabled/exporter/endpoint/db/cache/mq）
-- [ ] `seed-nacos.sh`：`curl` Nacos OpenAPI 逐个 publish `trace.yaml` + `services/*.yaml`（dataId 命名规则：`trace.yaml` → dataId `hubx.trace` group `HUBX`；`services/<svc>.yaml` → dataId `hubx.<svc>`）
-- [ ] 验证：`docker compose up -d && docker compose ps` 全绿；`mysql -h127.0.0.1 -uuser_rw -p<pw> -e "show tables" user_db` 5 库可连；commit `feat: docker base + nacos config seed`
+- [x] `compose.yaml`：mysql8（`init.sql` 挂载进 `/docker-entrypoint-initdb.d`）/ bitnami kafka KRaft（加 `KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true`）/ consul:1.18+（server+http 8500+dns 8600）/ nacos standalone（8848）/ redis:7 / jaeger all-in-one（4317 gRPC + 16686 UI）；健康检查各容器
+- [x] `init.sql`：建 5 库 5 账号（`user_rw@%` 等，`GRANT` 各自库），表结构与规格第 3 节一致（外键不建——微服务惯例不依赖跨库 FK）
+- [x] `configs/services/*.yaml` ×11：每个服务 `xmiddleware.sqlx.databases.<self>`（连自己那个库的 DSN，密码走 env 占位）+ `xmiddleware.cachex.instances.<self>`（redis）+ `xmiddleware.mqx.instances.<self>`（kafka，按该服务是否生产/消费事件选择性声明）
+- [x] `configs/trace.yaml`：规格第 5 节那份（enabled/exporter/endpoint/db/cache/mq）
+- [x] `seed-nacos.sh`：`curl` Nacos OpenAPI 逐个 publish `trace.yaml` + `services/*.yaml`（dataId 命名规则：`trace.yaml` → dataId `hubx.trace` group `HUBX`；`services/<svc>.yaml` → dataId `hubx.<svc>`）
+- [x] 验证：`docker compose up -d && docker compose ps` 全绿；`mysql -h127.0.0.1 -uuser_rw -p<pw> -e "show tables" user_db` 5 库可连；commit `feat: docker base + nacos config seed`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
