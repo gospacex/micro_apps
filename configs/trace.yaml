@@ -1,20 +1,22 @@
 # ============================================================
-# hubx/micro_apps 统一调用链开关（configs/trace.yaml）
+# 统一调用链开关（规格第 5 节）——11 个服务共读同一份
+# Nacos：dataId hubx.trace，group HUBX（configs/seed-nacos.sh 灌入）
 #
-# Nacos 单一 dataId（hubx.trace / HUBX），11 服务共读；
-# seed-nacos.sh 发布，矩阵验收程序化改写本文件触发 7 组合。
+# 裁决规则（与 monolith 同构）：
+#   生效值 = trace.enabled ∧ trace.<kind> ∧ 官方段 enable_trace
+#   省略细分键（db/cache/mq）→ 该 kind 取官方段（sqlx/cachex/mqx）的值
+#   业务/装配代码只准经 cfg.Trace.On(kind) 读开关，禁止直读 bool
 #
-# 字段与 monolith config.yaml 的 trace 段对齐。
-# 裁决规则（矩阵要证的三点）：
-#   1. 生效值 = trace.enabled ∧ trace.<kind> ∧ 官方段 enable_trace
-#   2. 总闸 enabled=false 比中间件管得宽：分层 span 一起灭，全服务归零
-#   3. 省略细分键 → 该 kind 取官方段（sqlx/cachex/mqx）值
+# endpoint 写宿主侧值：11 个服务不进 compose，用 go run 跑在宿主上，
+# 必须经宿主映射端口 4317 到达 jaeger（规格里 jaeger:4317 是 compose
+# 网络内的名字，宿主侧不可解析——端口裁决见
+# docs/superpowers/plans/local-docker-env.md）。
 # ============================================================
+
 trace:
-  enabled: true
-  exporter: otlp # otlp | stdout | jaeger
-  endpoint: 127.0.0.1:4317 # Jaeger OTLP gRPC（宿主映射 4317，见 local-docker-env.md）
-  sample_ratio: 1
-  db: true # SQL（单表 CRUD / 多表事务 / 连表 JOIN）
-  cache: true # 缓存命令（GET / SET / DEL …）
-  mq: true # 消息生产（send）与消费（process）
+  enabled: true      # 总闸：关则 11 服务 0 span（含分层 span）
+  exporter: otlp     # otlp / stdout
+  endpoint: 127.0.0.1:4317
+  db: true           # SQL span（单表 CRUD / 事务 / JOIN）
+  cache: true        # 缓存命令 span
+  mq: true           # messaging span + Kafka traceparent 头写入

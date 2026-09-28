@@ -1,48 +1,54 @@
-# hubx/micro_apps 多 app 共用 Dockerfile
+# syntax=docker/dockerfile:1
+# ============================================================
+# hubx/micro_apps 服务容器化路径（可选；默认用 scripts/bring-up.sh 本地 go run）
 #
-# 用法（go.mod 的 replace 指向 ../rpcx、../webx 等 SDK 目录，构建上下文必须在 hubx/ 根）：
-#   cd hubx && docker build -f micro_apps/docker/Dockerfile -t hubx-ma:gateway --build-arg app=gateway .
-#   cd hubx && docker build -f micro_apps/docker/Dockerfile -t hubx-ma:srv-order --build-arg app=srv-order .
+# go.mod 的 replace 指向 ../{rpcx,configx,logx,dbx,cachex,mqx,otelx,webx} 兄弟
+# 目录，因此构建上下文必须是 hubx/ 仓库根，而不是 micro_apps/：
 #
-# 说明：
-#   - builder 阶段编译 apps/<app>/cmd/<app>（11 个 app：gateway、bff-app、bff-web、
-#     bff-mini、bff-admin、srv-user、srv-product、srv-order、srv-pay、srv-coupon、job）
-#   - 运行时镜像只带二进制（配置走 Nacos hubx.trace / 本地 configs，不进镜像）
-#   - 端口定死值（见 configs/services/<svc>.yaml）：gateway 8080、bff-app 8081、
-#     bff-web 8082、bff-mini 8083、bff-admin 8084、srv-user 9001、srv-product 9002、
-#     srv-order 9003、srv-pay 9004、srv-coupon 9005、job 无监听（cobra 命令）
+#   cd ..                                        # hubx/ 仓库根
+#   docker build -f micro_apps/docker/Dockerfile \
+#     --build-arg SVC=srv-order -t hubx-ma/srv-order .
+#
+# SVC 取 apps/ 下的可部署单元名（gateway / bff-app / bff-web / bff-mini /
+# bff-admin / srv-user / srv-product / srv-order / srv-pay / srv-coupon / job）。
+#
+# 运行示例（宿主网络，直连 compose 暴露的 3306/19093/8500/8848/6379/4317）：
+#   docker run --rm --network host \
+#     -e HUBX_DB_PW=hubx123 -e HUBX_CONFIG=config.yaml \
+#     -v $(pwd)/micro_apps/configs:/configs \
+#     hubx-ma/srv-order
+#
+# 镜像统一走本机华为云前缀（与 docker/compose.yaml 同一约定）。
+# ============================================================
 
-ARG app
+# ---------- 构建阶段 ----------
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/golang:1.27-bookworm AS build
+ARG SVC=srv-order
 
-# ---------- builder ----------
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/golang:1.24-bookworm AS builder
-ARG app
-WORKDIR /src/micro_apps
+WORKDIR /src
 
-# 先拷 go.mod/go.sum + 本地 SDK（replace 目标）预拉依赖（缓存层）
-COPY micro_apps/go.mod micro_apps/go.sum ./
-COPY cachex/ ./cachex/
+# go.mod 的 replace 目标（SDK 本地目录）先拷，供 go mod download 解析
+COPY webx/    ./webx/
 COPY configx/ ./configx/
-COPY logx/ ./logx/
-COPY dbx/ ./dbx/
-COPY mqx/ ./mqx/
-COPY otelx/ ./otelx/
-COPY webx/ ./webx/
-COPY rpcx/ ./rpcx/
+COPY logx/    ./logx/
+COPY dbx/     ./dbx/
+COPY cachex/  ./cachex/
+COPY mqx/     ./mqx/
+COPY otelx/   ./otelx/
+COPY rpcx/    ./rpcx/
+
+# 再拷模块定义预热依赖，最后拷业务源码（利用层缓存）
+COPY micro_apps/go.mod micro_apps/go.sum ./micro_apps/
+WORKDIR /src/micro_apps
 RUN go mod download
 
-# 再拷业务源码（build 期 apps/ 尚未实现全 11 个时，可单独拷目标 app 目录）
-COPY micro_apps/ .
-RUN if [ -n "$app" ]; then \
-      go build -o /out/app ./apps/${app}/cmd/${app}; \
-    fi
+COPY micro_apps/ ./
+RUN CGO_ENABLED=0 go build -trimpath -o /out/service ./apps/${SVC}/cmd/${SVC}
 
-# ---------- runtime ----------
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/alpine:3.20
-ARG app
-LABEL hubx.app=${app}
-RUN apk add --no-cache ca-certificates tzdata \
-    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-COPY --from=builder /out/app /usr/local/bin/app
-# 运行时挂载/生成 config.yaml（HUBX_CONFIG 指定）；默认按 11 服务同构装配读本地 + Nacos
-ENTRYPOINT ["/usr/local/bin/app"]
+# ---------- 运行阶段 ----------
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/library/alpine:3.20
+RUN apk add --no-cache ca-certificates && adduser -D -u 10001 svc
+COPY --from=build /out/service /service
+USER svc
+# 配置经 HUBX_CONFIG / HUBX_NACOS_SERVER / HUBX_DB_PW 等环境变量注入
+ENTRYPOINT ["/service"]

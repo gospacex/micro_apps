@@ -1,58 +1,26 @@
-# srv-user 本地配置（Nacos 远程 dataId=hubx.trace / group=HUBX 覆盖 trace 段；本地字段兜底）
+# ============================================================
+# srv-user 服务配置 —— xmiddleware 段（字段名对齐 configx 企业契约
+# configx/configs/config.enterprise.yaml，与 monolith 契约逐字一致）
 #
-# 装配（11 服务同构，顺序为硬约束）：
-#   1. configx.New（Nacos hubx.trace + 本文件兜底，本地字段优先）
-#   2. rpcx/configx.MustLoad（kitex.*/log.*）+ rpcx/tracing.Init（OTLP gRPC 4317）
-#   3. dbx/cachex/mqx（经官方 loader，Trace.On(kind) 门控）+ Consul 注册
-#   4. kitex server（9001）+ webx 健康探针
-#   5. 优雅退出反序 + OTel flush
-app:
-  name: srv-user
-
-configx:
-  remote:
-    enabled: true
-    provider: nacos
-    nacos:
-      server_configs:
-        - ip: 127.0.0.1
-          port: 8848
-      namespace_id: public
-      group: HUBX
-      data_id: hubx.trace
-      refresh_interval: 30s
-
-logx:
-  level: info
-  format: console
-  output: stdout
-  service_name: srv-user
-
-# rpcx 栈配置键（kitex.*/log.*；rpcx/tracing.Init 读 log.enable_trace）
-log:
-  enable_trace: true
-  trace:
-    endpoint: 127.0.0.1:4317
-    insecure: true
-
-kitex:
-  server:
-    service_name: srv-user
-    addr: 0.0.0.0:9001
-    transport: pingpong
-    write_timeout_ms: 5000
-    read_timeout_ms: 5000
-    max_conns: 10000
-    max_qps: 0
+# 灌入 Nacos：dataId hubx.srv-user，group HUBX（configs/seed-nacos.sh）
+# 地址一律宿主侧值（服务不进 compose，go run 跑在宿主上；端口裁决见
+# docs/superpowers/plans/local-docker-env.md）：
+#   MySQL 127.0.0.1:3306 / Kafka 127.0.0.1:19093 / Redis 127.0.0.1:6379
+# 实例名 = 服务可部署单元名（<self>）：xmiddleware.{sqlx,cachex,mqx}.*.srv-user
+# 密码走 env 占位：运行前 export HUBX_DB_PW=<与 docker/mysql/init.sql 一致>
+# （本地演示密码 hubx123）
+# 私有库 user_db（账号 user_rw）。
+# 不生产/消费事件（无 xmiddleware.mqx）。
+# ============================================================
 
 xmiddleware:
-# ----- sqlx（user_db：user_rw 账号私有库）-----
+
+  # ----- sqlx：本服务私有库（一库一 srv 一账号，禁跨库 JOIN/直连他人库）-----
   sqlx:
-    driver: mysql
+    driver: gorm
     databases:
-      default:
-        driver: mysql
-        dsn: "user_rw:hubx123@tcp(127.0.0.1:3306)/user_db?charset=utf8mb4&parseTime=True&loc=Local"
+      srv-user:
+        dsn: "user_rw:${HUBX_DB_PW}@tcp(127.0.0.1:3306)/user_db?charset=utf8mb4&parseTime=True&loc=Local"
         max_open_conns: 20
         max_idle_conns: 5
         conn_max_lifetime: 5m
@@ -60,48 +28,28 @@ xmiddleware:
         slow_threshold: 200ms
         enable_log: true
         log_level: warn
+        # 官方调用链字段；生效值仍受统一 trace 段三段正交裁决
         enable_trace: true
+        health_check:
+          enabled: true
+          interval: 30s
+          timeout: 5s
 
-  # ----- cachex（cache:svc:user:，TTL 60s）-----
+  # ----- cachex：Redis（缓存/限流计数器/防重锁共用同一 Cache 接口）-----
   cachex:
     driver: redis
     instances:
-      default:
+      srv-user:
         addr: 127.0.0.1:6379
         password: ""
         db: 0
         pool_size: 100
         min_idle_conns: 10
+        pool_timeout: 30s
+        idle_timeout: 5m
         dial_timeout: 5s
         read_timeout: 3s
         write_timeout: 3s
         max_retries: 3
         slow_threshold: 100ms
         enable_trace: true
-        prefix: "cache:svc:user:"
-        ttl: 60s
-
-  # ----- mqx（kafka，宿主映射 19093；consumer group 定死 srv-user-v1）-----
-  mqx:
-    driver: kafka
-    instances:
-      default:
-        brokers:
-          - "127.0.0.1:19093"
-        call_chain_enabled: true
-        call_chain_exporter: ""
-        enable_trace: true
-        producer:
-          topic: ""
-          batch_size: 100
-          batch_timeout: 10ms
-          max_retries: 3
-          required_acks: all
-          compression: none
-        consumer:
-          group_id: srv-user-v1
-          topics: [] # 不消费事件（事件消费在 job）
-          auto_commit: true
-          max_concurrency: 4
-          session_timeout: 30s
-          heartbeat_interval: 10s

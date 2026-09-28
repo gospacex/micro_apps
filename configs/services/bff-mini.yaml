@@ -1,92 +1,35 @@
-# bff-mini 本地配置（Nacos 远程 dataId=hubx.trace / group=HUBX 覆盖 trace 段；本地字段兜底）
+# ============================================================
+# bff-mini 服务配置 —— xmiddleware 段（字段名对齐 configx 企业契约
+# configx/configs/config.enterprise.yaml，与 monolith 契约逐字一致）
 #
-# 装配（11 服务同构，顺序为硬约束）：
-#   1. configx.New（Nacos hubx.trace + 本文件兜底，本地字段优先）
-#   2. rpcx/configx.MustLoad（kitex.*/log.*）+ rpcx/tracing.Init（OTLP gRPC 4317）
-#   3. dbx/cachex/mqx（经官方 loader，Trace.On(kind) 门控）+ Consul 注册
-#   4. webx（8083，小程序码字段端隔离）
-#   5. 优雅退出反序 + OTel flush
-app:
-  name: bff-mini
-  addr: 0.0.0.0:8083 # webx 监听
-
-configx:
-  remote:
-    enabled: true
-    provider: nacos
-    nacos:
-      server_configs:
-        - ip: 127.0.0.1
-          port: 8848
-      namespace_id: public
-      group: HUBX
-      data_id: hubx.trace
-      refresh_interval: 30s
-
-logx:
-  level: info
-  format: console
-  output: stdout
-  service_name: bff-mini
-
-# rpcx 栈配置键（kitex.*/log.*；rpcx/tracing.Init 读 log.enable_trace）
-log:
-  enable_trace: true
-  trace:
-    endpoint: 127.0.0.1:4317
-    insecure: true
-
-kitex:
-
-  client:
-    service_name: bff-mini
-    # target 运行时由 Consul resolver（hubx/svc/<serviceID> KV）拼装，不在配置里写死
-    conn_type: long
-    connect_timeout_ms: 50
-    rpc_timeout_ms: 3000
+# 灌入 Nacos：dataId hubx.bff-mini，group HUBX（configs/seed-nacos.sh）
+# 地址一律宿主侧值（服务不进 compose，go run 跑在宿主上；端口裁决见
+# docs/superpowers/plans/local-docker-env.md）：
+#   MySQL 127.0.0.1:3306 / Kafka 127.0.0.1:19093 / Redis 127.0.0.1:6379
+# 实例名 = 服务可部署单元名（<self>）：xmiddleware.{sqlx,cachex,mqx}.*.bff-mini
+# 密码走 env 占位：运行前 export HUBX_DB_PW=<与 docker/mysql/init.sql 一致>
+# （本地演示密码 hubx123）
+# BFF 不直连 DB（openspec 红线，无 xmiddleware.sqlx）；挂展示层缓存。
+# 不生产/消费事件（无 xmiddleware.mqx）。
+# ============================================================
 
 xmiddleware:
 
-  # ----- cachex（bff:mini:，TTL 60s）-----
+  # ----- cachex：Redis（缓存/限流计数器/防重锁共用同一 Cache 接口）-----
   cachex:
     driver: redis
     instances:
-      default:
+      bff-mini:
         addr: 127.0.0.1:6379
         password: ""
         db: 0
         pool_size: 100
         min_idle_conns: 10
+        pool_timeout: 30s
+        idle_timeout: 5m
         dial_timeout: 5s
         read_timeout: 3s
         write_timeout: 3s
         max_retries: 3
         slow_threshold: 100ms
         enable_trace: true
-        prefix: "bff:mini:"
-        ttl: 60s
-
-  # ----- mqx（kafka，宿主映射 19093；consumer group 定死 bff-mini-v1）-----
-  mqx:
-    driver: kafka
-    instances:
-      default:
-        brokers:
-          - "127.0.0.1:19093"
-        call_chain_enabled: true
-        call_chain_exporter: ""
-        enable_trace: true
-        producer:
-          topic: ""
-          batch_size: 100
-          batch_timeout: 10ms
-          max_retries: 3
-          required_acks: all
-          compression: none
-        consumer:
-          group_id: bff-mini-v1
-          topics: [] # 不消费事件（事件消费在 job）
-          auto_commit: true
-          max_concurrency: 4
-          session_timeout: 30s
-          heartbeat_interval: 10s
