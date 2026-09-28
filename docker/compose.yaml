@@ -103,7 +103,7 @@ services:
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/nacos/nacos-server:v2.4.2
     container_name: hubx-ma-nacos
     restart: unless-stopped
-    mem_limit: 768m
+    mem_limit: 1g
     environment:
       # 单机 standalone + 内置 derby 存储。
       # 注意：不要设置 SPRING_DATASOURCE_PLATFORM——Spring 松散绑定会把它绑到
@@ -111,7 +111,7 @@ services:
       MODE: standalone
       NACOS_AUTH_ENABLE: "false"
       JVM_XMS: 256m
-      JVM_XMX: 384m
+      JVM_XMX: 512m
     ports:
       - "8848:8848"
       - "9848:9848" # 客户端 gRPC 长轮询
