@@ -18,5 +18,16 @@
 - MySQL 3306 / Consul 8500+8600 / Nacos 8848 / Redis 6379 / Jaeger 4317+16686 均直接用默认端口
 - `configs/services/*.yaml` 里所有地址写宿主侧值：MySQL 127.0.0.1:3306、Kafka 127.0.0.1:19093、Consul 127.0.0.1:8500、Redis 127.0.0.1:6379、Nacos 127.0.0.1:8848、Jaeger OTLP 127.0.0.1:4317
 
+**服务监听端口分配（唯一事实源，2026-09-28 裁决；各服务 config.yaml、consul Register、bring-up/e2e 脚本一律照此，不得各起炉灶）：**
+
+| 服务 | 监听端口 | 说明 |
+|---|---|---|
+| gateway | :8080 | HTTP 入口（webx） |
+| bff-app / bff-web / bff-mini / bff-admin | :8091 / :8092 / :8093 / :8094 | HTTP→gRPC 转换层 |
+| srv-user / srv-product / srv-order / srv-pay / srv-coupon | :9011 / :9012 / :9013 / :9014 / :9015 | gRPC（rpcx）；**9001 被 hubx-minio 占用（宿主映射 9000/9001，勿 kill），整段上移 10** |
+| job | 无 | cobra CLI，不起监听端口 |
+
+宿主 8080 / 8091~8094 / 9011~9015 已 lsof 实测全 free。infra/consul/registry_test.go 里的 10.x.x.x:9003 是测试字符串（不绑宿主端口），无需改动。
+
 
 已知在跑的宿主容器（勿 kill）：hubx-logx-kafka / hubx-logx-jaeger / hubx-logx-zookeeper / hubx-mongo* / hubx-minio / hubx-rustfs / hubx-rocketmq-* / chroma-server / vector-admin-db / freellmapi-freellmapi-1。
