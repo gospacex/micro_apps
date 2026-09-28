@@ -1,0 +1,94 @@
+# job 本地配置（Nacos 远程 dataId=hubx.trace / group=HUBX 覆盖 trace 段；本地字段兜底）
+#
+# 装配（11 服务同构，顺序为硬约束）：
+#   1. configx.New（Nacos hubx.trace + 本文件兜底，本地字段优先）
+#   2. rpcx/configx.MustLoad（kitex.*/log.*）+ rpcx/tracing.Init（OTLP gRPC 4317）
+#   3. dbx/cachex/mqx（经官方 loader，Trace.On(kind) 门控）+ Consul 注册
+#   4. cobra 命令（consume/retry/schedule，gocron 宿主）
+#   5. 优雅退出反序 + OTel flush
+app:
+  name: job
+
+configx:
+  remote:
+    enabled: true
+    provider: nacos
+    nacos:
+      server_configs:
+        - ip: 127.0.0.1
+          port: 8848
+      namespace_id: public
+      group: HUBX
+      data_id: hubx.trace
+      refresh_interval: 30s
+
+logx:
+  level: info
+  format: console
+  output: stdout
+  service_name: job
+
+# rpcx 栈配置键（kitex.*/log.*；rpcx/tracing.Init 读 log.enable_trace）
+log:
+  enable_trace: true
+  trace:
+    endpoint: 127.0.0.1:4317
+    insecure: true
+
+kitex:
+  # job 无 kitex 监听（cobra 命令宿主：consume/retry/schedule，gocron 宿主）；client 调 srv-coupon GrantPoints
+  client:
+    service_name: job
+    # target 运行时由 Consul resolver（hubx/svc/<serviceID> KV）拼装，不在配置里写死
+    conn_type: long
+    connect_timeout_ms: 50
+    rpc_timeout_ms: 3000
+
+xmiddleware:
+
+  # ----- cachex（job:dlq:，TTL 300s）-----
+  cachex:
+    driver: redis
+    instances:
+      default:
+        addr: 127.0.0.1:6379
+        password: ""
+        db: 0
+        pool_size: 100
+        min_idle_conns: 10
+        dial_timeout: 5s
+        read_timeout: 3s
+        write_timeout: 3s
+        max_retries: 3
+        slow_threshold: 100ms
+        enable_trace: true
+        prefix: "job:dlq:"
+        ttl: 300s
+
+  # ----- mqx（kafka，宿主映射 19093；consumer group 定死 job-order-v1）-----
+  mqx:
+    driver: kafka
+    instances:
+      default:
+        brokers:
+          - "127.0.0.1:19093"
+        call_chain_enabled: true
+        call_chain_exporter: ""
+        enable_trace: true
+        producer:
+          topic: ""
+          batch_size: 100
+          batch_timeout: 10ms
+          max_retries: 3
+          required_acks: all
+          compression: none
+        consumer:
+          group_id: job-order-v1
+          topics:
+            - order.completed.v1
+            - coupon.exchanged.v1
+            - points.granted.v1
+          auto_commit: true
+          max_concurrency: 4
+          session_timeout: 30s
+          heartbeat_interval: 10s

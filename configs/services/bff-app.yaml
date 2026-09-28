@@ -1,0 +1,85 @@
+# bff-app 本地配置（Nacos 远程 dataId=hubx.trace / group=HUBX 覆盖 trace 段；本地字段兜底）
+#
+# 装配（11 服务同构）：
+#   1. configx.New（Nacos hubx.trace + 本文件兜底）→ 2. rpcx/configx.MustLoad（kitex.*/log.*）
+#   → 3. cachex/mqx + Consul → 4. webx（8081）
+# BFF 无 DB：聚合 5 个 srv 的 rpcx client，errgroup 并发 + 展示层缓存 bff:app:
+app:
+  name: bff-app
+  addr: 0.0.0.0:8081 # webx 监听
+
+configx:
+  remote:
+    enabled: true
+    provider: nacos
+    nacos:
+      server_configs:
+        - ip: 127.0.0.1
+          port: 8848
+      namespace_id: public
+      group: HUBX
+      data_id: hubx.trace
+      refresh_interval: 30s
+
+logx:
+  level: info
+  format: console
+  output: stdout
+  service_name: bff-app
+
+# rpcx 栈配置键（kitex.*/log.*；rpcx/tracing.Init 读 log.enable_trace + OTLP gRPC 4317）
+log:
+  enable_trace: true
+  trace:
+    endpoint: 127.0.0.1:4317
+    insecure: true
+
+kitex:
+  client:
+    service_name: bff-app
+    # target 运行时由 Consul resolver（hubx/svc/<serviceID> KV）拼装，不在配置里写死
+
+xmiddleware:
+  # ----- cachex（展示层缓存 bff:app:{resource}:{user_id}，TTL 60s，命中不再打 srv）-----
+  cachex:
+    driver: redis
+    instances:
+      default:
+        addr: 127.0.0.1:6379
+        password: ""
+        db: 0
+        pool_size: 100
+        min_idle_conns: 10
+        dial_timeout: 5s
+        read_timeout: 3s
+        write_timeout: 3s
+        max_retries: 3
+        slow_threshold: 100ms
+        enable_trace: true
+        prefix: "bff:app:"
+        ttl: 60s
+
+  # ----- mqx（BFF 无消费角色；实例保留 + group 定死）-----
+  mqx:
+    driver: kafka
+    instances:
+      default:
+        brokers:
+          - "127.0.0.1:19093"
+        call_chain_enabled: true
+        call_chain_exporter: ""
+        enable_trace: true
+        producer:
+          topic: ""
+          batch_size: 100
+          batch_timeout: 10ms
+          max_retries: 3
+          required_acks: all
+          compression: none
+        consumer:
+          group_id: bff-app-v1
+          topics: [] # BFF 不消费事件（事件消费在 job）
+          auto_commit: true
+          max_concurrency: 4
+          session_timeout: 30s
+          heartbeat_interval: 10s

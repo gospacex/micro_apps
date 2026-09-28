@@ -1,0 +1,152 @@
+# hubx/micro_apps docker 底座（六件套：mysql / kafka / consul / nacos / redis / jaeger）
+#
+# 事实来源：docs/superpowers/plans/local-docker-env.md（本机华为云镜像 + 端口裁决，以此为准）
+#   - 镜像全部走华为云前缀 swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/<image>
+#   - Kafka 宿主映射 19093→9092（宿主 9092/19092 被占）；wurstmeister 镜像内置 zk（容器内 2181），
+#     不单独起 zookeeper 容器（宿主 2181 被 hubx-logx-zookeeper 占用）
+#   - MySQL/Consul/Nacos/Redis/Jaeger 直接用宿主默认端口 3306/8500+8600/8848/6379/4317+16686
+#   - 宿主已在跑 hubx-logx-* 等容器，本 compose 不做宿主端口冲突处理，端口以裁决表为准
+
+name: hubx-micro-apps
+
+services:
+  mysql:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mysql:8.0
+    container_name: hubx-ma-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      # 五库五账号 + 全量表（init.sql 与 pkg/seedsql 五份 DDL 同步维护）
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -prootpass --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 15s
+    networks: [hubx-ma]
+
+  kafka:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/wurstmeister/kafka:2.13-2.8.1
+    container_name: hubx-ma-kafka
+    # KAFKA_ADVERTISED_CLIENT_IP=127.0.0.1 → 宿主客户端经 127.0.0.1:19093 接入
+    # （本地环境事实见 docs/superpowers/plans/local-docker-env.md）
+    # 本镜像内置 zookeeper（容器内 2181），不单独起 zk 容器（宿主 2181 被既有容器占用）
+    environment:
+      # 双 listener（对齐宿主 hubx-logx-kafka 的做法）：
+      #   CLIENT   宿主侧 127.0.0.1:19093（客户端经宿主映射接入）
+      #   INTERNAL 容器网络侧 kafka:9092（broker 互访）
+      KAFKA_ADVERTISED_CLIENT_IP: "127.0.0.1"
+      KAFKA_LISTENERS: "CLIENT://0.0.0.0:19093,INTERNAL://0.0.0.0:9092"
+      KAFKA_ADVERTISED_LISTENERS: "CLIENT://127.0.0.1:19093,INTERNAL://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CLIENT:PLAINTEXT,INTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: "127.0.0.1:2181"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # 格式 topic:replicas:partitions（任务 7 显式建 6 个 topic，副本 1）
+      KAFKA_CREATE_TOPICS: >
+        order.completed.v1:1:3
+        coupon.exchanged.v1:1:3
+        points.granted.v1:1:3
+        order.completed.v1.dlq:1:3
+        coupon.exchanged.v1.dlq:1:3
+        points.granted.v1.dlq:1:3
+    ports:
+      - "19093:19093" # 宿主 19093 → 容器 CLIENT listener（宿主 9092/19092 被占，裁决表定死 19093）
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "kafka-topics --zookeeper 127.0.0.1:2181 --list || exit 1"
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks: [hubx-ma]
+
+  consul:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/hashicorp/consul:1.22.4
+    container_name: hubx-ma-consul
+    command:
+      [
+        "agent",
+        "-server",
+        "-bootstrap",
+        "-client=0.0.0.0",
+      ]
+    ports:
+      - "8500:8500" # http api
+      - "8600:8600/udp" # dns
+    healthcheck:
+      test: ["CMD-SHELL", "consul members | grep -q 'alive' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [hubx-ma]
+
+  nacos:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/nacos/nacos-server:v2.4.2
+    container_name: hubx-ma-nacos
+    environment:
+      PREFER_HOST_MODE: hostname
+      MODE: standalone
+      # 单机 derby 存储（不挂外部 mysql 给 nacos）
+      SPRING_DATASOURCE_PLATFORM: "nacos"
+      NACOS_AUTH_ENABLE: "false"
+    ports:
+      - "8848:8848"
+      - "9848:9848" # 客户端 gRPC 长轮询
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'curl -sf "http://127.0.0.1:8848/nacos/" || exit 1'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [hubx-ma]
+
+  redis:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/redis:8.4
+    container_name: hubx-ma-redis
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks: [hubx-ma]
+
+  jaeger:
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/jaegertracing/all-in-one:1.63.0
+    container_name: hubx-ma-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_OTLP_GRPC_PORT: "4317"
+      COLLECTOR_OTLP_HTTP_PORT: "4318"
+    ports:
+      - "4317:4317" # OTLP gRPC（OTel 默认导出端点）
+      - "4318:4318" # OTLP HTTP
+      - "16686:16686" # Jaeger UI
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'curl -sf "http://127.0.0.1:16686/monitor" >/dev/null || exit 1'
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks: [hubx-ma]
+
+networks:
+  hubx-ma:
+    driver: bridge
