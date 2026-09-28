@@ -63,7 +63,8 @@ func (f *fakeConsul) server(t *testing.T) *httptest.Server {
 				buf = buf[:n]
 			}
 			f.store[key] = string(buf)
-			w.WriteHeader(http.StatusNoContent)
+			// 真实 Consul KV PUT 返回 200 + "true"；go-consul-api 期望 200
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.Error(w, "method", http.StatusMethodNotAllowed)
 		}
