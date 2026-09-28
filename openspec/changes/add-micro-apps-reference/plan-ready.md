@@ -9,7 +9,7 @@
 ## 实现步骤
 
 ### Task 1: 仓库脚手架 + go.mod
-- [ ] **任务完成**（与 superpowers plan `Task 1`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 1`、`tasks.md` 对应条目同步勾选）
 - 目标：建立单模块仓库骨架，锁定本地 SDK replace 清单
 - 步骤：
   1. 写 `go.mod`（module hubx/micro_apps，go 1.24，`replace` 指向 ../rpcx ../configx ../webx ../logx ../dbx ../cachex ../mqx ../otelx，参照 monolith go.mod 清单）— 文件：go.mod — 验证：`go mod edit -json` 显示 8 条 replace
@@ -19,7 +19,7 @@
 - 验证方式：`go build ./...` 通过；commit `chore: scaffold micro_apps module`
 
 ### Task 2: pkg 数据层（纯数据，无外部依赖）
-- [ ] **任务完成**（与 superpowers plan `Task 2`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 2`、`tasks.md` 对应条目同步勾选）
 - 目标：落 proto 单一事实源、事件体、错误码、身份常量、五库种子 SQL
 - 步骤：
   1. `pkg/meta` Header 常量 + `pkg/codes` 统一错误码（按 5 个 srv 错误域分组，只定一次）— 文件：pkg/meta/meta.go、pkg/codes/codes.go — 验证：`go vet ./pkg/meta ./pkg/codes`
@@ -29,7 +29,7 @@
 - 验证方式：`go vet ./pkg/...`；commit `feat: pkg codes/meta/events/seedsql/proto`
 
 ### Task 3: 生成 kitex_gen（RPC 桩）
-- [ ] **任务完成**（与 superpowers plan `Task 3`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 3`、`tasks.md` 对应条目同步勾选）
 - 目标：生成 5 个 srv 的 RPC 桩并提交入库（验收不依赖 kitex CLI）
 - 步骤：
   1. 安装 kitex CLI 并读 `hubx/rpcx/example/` 生成命令 — 文件：无（环境） — 验证：`kitex --version`
@@ -38,7 +38,7 @@
 - 验证方式：`go build ./pkg/kitex_gen/...`；commit `feat: generate rpcx stubs for 5 services`
 
 ### Task 4: infra/telemetry（移植 monolith）
-- [ ] **任务完成**（与 superpowers plan `Task 4`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 4`、`tasks.md` 对应条目同步勾选）
 - 目标：分层 span 助手 + 全局 TracerProvider + 总闸 noop 行为
 - 步骤：
   1. 读 monolith `internal/telemetry/` 全部文件并移植（Init/Start，层命名 handler/service/repository/middleware 对齐）— 文件：infra/telemetry/provider.go、layers.go — 验证：编译过、签名与 monolith 同构
@@ -48,7 +48,7 @@
 - 验证方式：`go test ./infra/telemetry/`；commit `feat: infra/telemetry (port monolith layered tracing)`
 
 ### Task 5: infra/nacos + infra/drivers + pkg/config
-- [ ] **任务完成**（与 superpowers plan `Task 5`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 5`、`tasks.md` 对应条目同步勾选）
 - 目标：`Trace.On(kind)` 唯一开关入口 + configx loader + 驱动薄封装
 - 步骤：
   1. `pkg/config/trace.go`：读三官方段 enable_trace + configx.Trace() 段，封装 `On(kind)`（enabled ∧ kind ∧ 官方段三段正交）— 文件：pkg/config/trace.go — 验证：7 组合表驱动单测（直接对应矩阵 7 组合）
@@ -58,7 +58,7 @@
 - 验证方式：`go test ./pkg/config/` 红→绿；commit `feat: pkg/config trace switch + infra nacos loader & drivers`
 
 ### Task 6: infra/consul（自研 resolver + 注册）
-- [ ] **任务完成**（与 superpowers plan `Task 6`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 6`、`tasks.md` 对应条目同步勾选）
 - 目标：在 rpcx resolver 扩展点挂 Consul 服务发现 + 服务注册/注销
 - 步骤：
   1. 读 `hubx/rpcx/pkg/rpcx/resolver/resolver.go` 确认 Resolver 接口与 Register 签名 — 文件：无（读源码，先读门禁） — 验证：实现签名与源码逐字一致

@@ -2,12 +2,12 @@
 
 ## 1. 基础设施与共享层
 
-- [ ] 1.1 仓库脚手架：单 go.mod（module hubx/micro_apps，replace 本地 SDK ×8）+ `go mod tidy` + 11 个 apps 目录占位，`go build ./...` 通过（对应 Task 1）
-- [ ] 1.2 pkg 数据层：meta Header 常量、codes 统一错误码、events 三事件体（含 SchemaVer/traceparent 常量）、seedsql 五库 SQL、proto 五服务定义，`go vet ./pkg/...` 通过（对应 Task 2）
-- [ ] 1.3 生成 kitex_gen RPC 桩（提交入库），`go build ./pkg/kitex_gen/...` 通过（对应 Task 3）
-- [ ] 1.4 infra/telemetry：移植 monolith 分层 span 助手 + Init 顺序 + 总闸 noop 行为，stdout exporter 单测红→绿（对应 Task 4）
-- [ ] 1.5 pkg/config `Trace.On(kind)` 三段正交封装 + infra/nacos loader + infra/drivers 薄封装，7 组合表驱动单测红→绿（对应 Task 5）
-- [ ] 1.6 infra/consul：自研 rpcx resolver（Resolve + Register/Deregister），httptest 模拟 KV 单测红→绿（对应 Task 6）
+- [x]1.1 仓库脚手架：单 go.mod（module hubx/micro_apps，replace 本地 SDK ×8）+ `go mod tidy` + 11 个 apps 目录占位，`go build ./...` 通过（对应 Task 1）
+- [x]1.2 pkg 数据层：meta Header 常量、codes 统一错误码、events 三事件体（含 SchemaVer/traceparent 常量）、seedsql 五库 SQL、proto 五服务定义，`go vet ./pkg/...` 通过（对应 Task 2）
+- [x]1.3 生成 kitex_gen RPC 桩（提交入库），`go build ./pkg/kitex_gen/...` 通过（对应 Task 3）
+- [x]1.4 infra/telemetry：移植 monolith 分层 span 助手 + Init 顺序 + 总闸 noop 行为，stdout exporter 单测红→绿（对应 Task 4）
+- [x]1.5 pkg/config `Trace.On(kind)` 三段正交封装 + infra/nacos loader + infra/drivers 薄封装，7 组合表驱动单测红→绿（对应 Task 5）
+- [x]1.6 infra/consul：自研 rpcx resolver（Resolve + Register/Deregister），httptest 模拟 KV 单测红→绿（对应 Task 6）
 - [ ] 1.7 docker 底座 + configs：compose 六件套（mysql 五库/kafka/consul/nacos/redis/jaeger）、init.sql、11 份服务配置、trace.yaml、seed-nacos.sh，`docker compose ps` 全绿（对应 Task 7）
 
 ## 2. 服务实现

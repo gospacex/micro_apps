@@ -143,11 +143,11 @@ micro_apps/
 
 **文件：** 创建 `go.mod`、`go.sum`；确认 11 个 `apps/*/cmd/*/` 空目录占位
 
-- [ ] 写 `go.mod`：`module hubx/micro_apps`，go 1.24；`require` + `replace` 指向 `../rpcx`、`../configx`、`../webx`、`../logx`、`../dbx`、`../cachex`、`../mqx`、`../otelx`（逐个 `go mod edit -require`/`-replace`，或参照 monolith go.mod 的 replace 清单复制）
-- [ ] `go mod tidy`（会拉 kitex、gin、viper 等进 go.sum；失败则逐个 SDK 的 go.mod 确认 version 号）
-- [ ] 验证：`go build ./...`（空仓库过）；commit `chore: scaffold micro_apps module`
+- [x]写 `go.mod`：`module hubx/micro_apps`，go 1.24；`require` + `replace` 指向 `../rpcx`、`../configx`、`../webx`、`../logx`、`../dbx`、`../cachex`、`../mqx`、`../otelx`（逐个 `go mod edit -require`/`-replace`，或参照 monolith go.mod 的 replace 清单复制）
+- [x]`go mod tidy`（会拉 kitex、gin、viper 等进 go.sum；失败则逐个 SDK 的 go.mod 确认 version 号）
+- [x]验证：`go build ./...`（空仓库过）；commit `chore: scaffold micro_apps module`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 2：pkg 数据层（纯数据，无外部依赖）
 > **trace:** plan-ready.md → `### Task 2: pkg 数据层（纯数据，无外部依赖）` | tasks.md → `- [ ] 1.2 pkg 数据层：meta Header 常量、codes 统一错误码、events 三事件体（含 SchemaVer/traceparent 常量）、seedsql 五库 SQL、proto 五服务定义，`go vet ./pkg/...` 通过（对应 Task 2）`
@@ -155,13 +155,13 @@ micro_apps/
 
 **文件：** 创建 `pkg/codes/codes.go`、`pkg/meta/meta.go`、`pkg/events/order_completed.go`、`pkg/events/coupon_exchanged.go`、`pkg/events/points_granted.go`、5 个 `pkg/seedsql/*.sql`、5 个 `pkg/proto/*.proto`
 
-- [ ] `pkg/meta`：`const HeaderUserID = "X-User-Id"; HeaderTenant = "X-Tenant"; HeaderGray = "X-Gray"`
-- [ ] `pkg/codes`：`type Code struct{Code int64; Message string}` + 统一错误码常量（`CodeOK=0`、`CodeInvalidParam`、`CodeNotFound`、`CodeStockNotEnough`、`CodeCouponUsed`、`CodePayFailed`…按 5 个 srv 的错误域分组，具体数值在写时定，**只定一次**）
-- [ ] `pkg/events`：三个事件体 struct（`OrderCompleted{OrderID int64; UserID int64; Amount int64; Items []Item; SchemaVer int; TraceID string}` 等，字段名对齐 proto 消息），`MarshalJSON/UnmarshalJSON`；`TraceHeaderKey = "traceparent"` 常量
-- [ ] `pkg/proto/*.proto`：5 个文件，按规格第 3 节的服务清单定 RPC 方法（srv-user: `Register/Login/GetProfile/CheckUser`；srv-product: `GetProduct/ReserveStock/ListProducts`；srv-order: `CreateOrder/GetOrder/Report`（4 表 JOIN）/`ListOrders`（只读流水，对账用）；srv-pay: `Pay/Callback/ListPayFlows`；srv-coupon: `Consume/GrantPoints/ListCoupons`）。每个 message 带 `int64 user_id`（跨域透传身份），**trace 走 gRPC metadata，不塞进消息体**
-- [ ] 验证：`go vet ./pkg/...`；proto 语法用 `protoc --proto_path=pkg/proto --go_out=... 干跑`或 kitex CLI 校验（下一步）；commit `feat: pkg codes/meta/events/seedsql/proto`
+- [x]`pkg/meta`：`const HeaderUserID = "X-User-Id"; HeaderTenant = "X-Tenant"; HeaderGray = "X-Gray"`
+- [x]`pkg/codes`：`type Code struct{Code int64; Message string}` + 统一错误码常量（`CodeOK=0`、`CodeInvalidParam`、`CodeNotFound`、`CodeStockNotEnough`、`CodeCouponUsed`、`CodePayFailed`…按 5 个 srv 的错误域分组，具体数值在写时定，**只定一次**）
+- [x]`pkg/events`：三个事件体 struct（`OrderCompleted{OrderID int64; UserID int64; Amount int64; Items []Item; SchemaVer int; TraceID string}` 等，字段名对齐 proto 消息），`MarshalJSON/UnmarshalJSON`；`TraceHeaderKey = "traceparent"` 常量
+- [x]`pkg/proto/*.proto`：5 个文件，按规格第 3 节的服务清单定 RPC 方法（srv-user: `Register/Login/GetProfile/CheckUser`；srv-product: `GetProduct/ReserveStock/ListProducts`；srv-order: `CreateOrder/GetOrder/Report`（4 表 JOIN）/`ListOrders`（只读流水，对账用）；srv-pay: `Pay/Callback/ListPayFlows`；srv-coupon: `Consume/GrantPoints/ListCoupons`）。每个 message 带 `int64 user_id`（跨域透传身份），**trace 走 gRPC metadata，不塞进消息体**
+- [x]验证：`go vet ./pkg/...`；proto 语法用 `protoc --proto_path=pkg/proto --go_out=... 干跑`或 kitex CLI 校验（下一步）；commit `feat: pkg codes/meta/events/seedsql/proto`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 3：生成 kitex_gen（RPC 桩）
 > **trace:** plan-ready.md → `### Task 3: 生成 kitex_gen（RPC 桩）` | tasks.md → `- [ ] 1.3 生成 kitex_gen RPC 桩（提交入库），`go build ./pkg/kitex_gen/...` 通过（对应 Task 3）`
@@ -169,11 +169,11 @@ micro_apps/
 
 **文件：** 生成 `pkg/kitex_gen/{user,product,order,pay,coupon}/`
 
-- [ ] 安装 kitex CLI（`go install github.com/kitexx/kitex/kitex@latest`，或 hubx/rpcx/scripts 里若有封装脚本用它的）
-- [ ] 按 `hubx/rpcx/example/` 的生成命令逐 proto 生成到 `pkg/kitex_gen/`（monolith/monolith 的 PROMPT 无此步，本任务新增；生成命令格式：`kitex -module hubx/micro_apps -namespace hubx.micro_apps -service user -output pkg/kitex_gen/user pkg/proto/user/user.proto`，以 SDK 实际参数为准——先跑一个成功的再批 5 个）
-- [ ] 验证：`go build ./pkg/kitex_gen/...` 过（生成代码依赖 go.mod 里的 kitex 依赖）；commit `feat: generate rpcx stubs for 5 services`
+- [x]安装 kitex CLI（`go install github.com/kitexx/kitex/kitex@latest`，或 hubx/rpcx/scripts 里若有封装脚本用它的）
+- [x]按 `hubx/rpcx/example/` 的生成命令逐 proto 生成到 `pkg/kitex_gen/`（monolith/monolith 的 PROMPT 无此步，本任务新增；生成命令格式：`kitex -module hubx/micro_apps -namespace hubx.micro_apps -service user -output pkg/kitex_gen/user pkg/proto/user/user.proto`，以 SDK 实际参数为准——先跑一个成功的再批 5 个）
+- [x]验证：`go build ./pkg/kitex_gen/...` 过（生成代码依赖 go.mod 里的 kitex 依赖）；commit `feat: generate rpcx stubs for 5 services`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 4：infra/telemetry（移植 monolith）
 > **trace:** plan-ready.md → `### Task 4: infra/telemetry（移植 monolith）` | tasks.md → `- [ ] 1.4 infra/telemetry：移植 monolith 分层 span 助手 + Init 顺序 + 总闸 noop 行为，stdout exporter 单测红→绿（对应 Task 4）`
@@ -181,12 +181,12 @@ micro_apps/
 
 **文件：** 创建 `infra/telemetry/provider.go`、`infra/telemetry/layers.go`、测试 `infra/telemetry/provider_test.go`
 
-- [ ] 读 `hubx/monolith/internal/telemetry/` 全部文件，移植到 `infra/telemetry`：`Init(ctx, service, trace)`（读 `configx.Trace()` 总闸 → OTLP gRPC 4317 / stdout exporter）、`Start(ctx, layer, entity, op)` 分层 span 助手（命名 `handler.* / service.* / repository.* / middleware.*`，与 monolith 逐字对齐）
-- [ ] 微调：`ServiceName` 参数化（11 服务各自传入）；**总闸关时返回 noop provider + 关闭 logx.EnableTrace**（对齐 monolith 矩阵"总闸比中间件管得宽"结论）
-- [ ] TDD：`provider_test.go` 先写——stdout exporter 捕获 3 类 span（`service.order.CreateOrder` 父 + `repository.orders.InsertTx` 子 + 属性层命名正确）；总闸关时 `Start` 返回 span 无 parent（noop）；运行 `go test ./infra/telemetry/` 红→绿
-- [ ] commit `feat: infra/telemetry (port monolith layered tracing)`
+- [x]读 `hubx/monolith/internal/telemetry/` 全部文件，移植到 `infra/telemetry`：`Init(ctx, service, trace)`（读 `configx.Trace()` 总闸 → OTLP gRPC 4317 / stdout exporter）、`Start(ctx, layer, entity, op)` 分层 span 助手（命名 `handler.* / service.* / repository.* / middleware.*`，与 monolith 逐字对齐）
+- [x]微调：`ServiceName` 参数化（11 服务各自传入）；**总闸关时返回 noop provider + 关闭 logx.EnableTrace**（对齐 monolith 矩阵"总闸比中间件管得宽"结论）
+- [x]TDD：`provider_test.go` 先写——stdout exporter 捕获 3 类 span（`service.order.CreateOrder` 父 + `repository.orders.InsertTx` 子 + 属性层命名正确）；总闸关时 `Start` 返回 span 无 parent（noop）；运行 `go test ./infra/telemetry/` 红→绿
+- [x]commit `feat: infra/telemetry (port monolith layered tracing)`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 5：infra/nacos + infra/drivers + pkg/config
 > **trace:** plan-ready.md → `### Task 5: infra/nacos + infra/drivers + pkg/config` | tasks.md → `- [ ] 1.5 pkg/config `Trace.On(kind)` 三段正交封装 + infra/nacos loader + infra/drivers 薄封装，7 组合表驱动单测红→绿（对应 Task 5）`
@@ -194,13 +194,13 @@ micro_apps/
 
 **文件：** 创建 `infra/nacos/loader.go`、`infra/drivers/drivers.go`、`pkg/config/trace.go`（+ 各自测试）
 
-- [ ] `pkg/config/trace.go`：`type Config struct{ ... }` 从 configx 读 `xmiddleware.sqlx / cachex / mqx` 三段的官方 `enable_trace` 字段 + `configx.Trace()` 段，封装 `On(kind string) bool`（`enabled ∧ <kind> ∧ 官方段`，三细分正交——**这就是 monolith `cfg.Trace.On` 的等价物，本案例的"唯一开关入口"约束落在这里**）
-- [ ] `infra/nacos/loader.go`：`Load(ctx, dataID, group, localPath)` = `configx.LoadFromBytes`（远程，失败回退）+ `configx.LoadFromLocal(localPath)`（本地优先）；**文档注释写清"本地字段优先"语义 + "无热更新，改配置须重启"**
-- [ ] `infra/drivers/drivers.go`：blank import `hubx/cachex/redis`、`hubx/mqx/kafka`（驱动自注册）；导出 `NewCache(ctx, name)` / `NewProducer(name)` / `NewConsumer(name, group)` 薄封装（内部走 `cachex.Open(ctx, nil, name)` + `mqx.ReadConfigFromConfigx` + `mqx.NewProducer/NewConsumer`）
-- [ ] TDD：`pkg/config/trace_test.go` 写 7 种组合表驱动（全开/总闸关/db=off/cache=off/mq=off/省略细分/官方段关）断言 `On(kind)` 输出——**这份表驱动直接就是矩阵 7 组合的单元测试版**；运行红→绿
-- [ ] commit `feat: pkg/config trace switch + infra nacos loader & drivers`
+- [x]`pkg/config/trace.go`：`type Config struct{ ... }` 从 configx 读 `xmiddleware.sqlx / cachex / mqx` 三段的官方 `enable_trace` 字段 + `configx.Trace()` 段，封装 `On(kind string) bool`（`enabled ∧ <kind> ∧ 官方段`，三细分正交——**这就是 monolith `cfg.Trace.On` 的等价物，本案例的"唯一开关入口"约束落在这里**）
+- [x]`infra/nacos/loader.go`：`Load(ctx, dataID, group, localPath)` = `configx.LoadFromBytes`（远程，失败回退）+ `configx.LoadFromLocal(localPath)`（本地优先）；**文档注释写清"本地字段优先"语义 + "无热更新，改配置须重启"**
+- [x]`infra/drivers/drivers.go`：blank import `hubx/cachex/redis`、`hubx/mqx/kafka`（驱动自注册）；导出 `NewCache(ctx, name)` / `NewProducer(name)` / `NewConsumer(name, group)` 薄封装（内部走 `cachex.Open(ctx, nil, name)` + `mqx.ReadConfigFromConfigx` + `mqx.NewProducer/NewConsumer`）
+- [x]TDD：`pkg/config/trace_test.go` 写 7 种组合表驱动（全开/总闸关/db=off/cache=off/mq=off/省略细分/官方段关）断言 `On(kind)` 输出——**这份表驱动直接就是矩阵 7 组合的单元测试版**；运行红→绿
+- [x]commit `feat: pkg/config trace switch + infra nacos loader & drivers`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 6：infra/consul（自研 resolver + 注册）
 > **trace:** plan-ready.md → `### Task 6: infra/consul（自研 resolver + 注册）` | tasks.md → `- [ ] 1.6 infra/consul：自研 rpcx resolver（Resolve + Register/Deregister），httptest 模拟 KV 单测红→绿（对应 Task 6）`
@@ -208,14 +208,14 @@ micro_apps/
 
 **文件：** 创建 `infra/consul/resolver.go`、`infra/consul/register.go`、测试 `infra/consul/resolver_test.go`
 
-- [ ] 读 `hubx/rpcx/pkg/rpcx/resolver/resolver.go` 确认 `Resolver` 接口与 `Register` 签名
-- [ ] `resolver.go`：`type ConsulResolver struct{Client *consulapi.Client}` 实现 `Resolve(ctx, serviceID, targets, cfg)`——调 Consul KV `hubx/svc/<serviceID>` 读 `host:port` 列表；`Register("consul", &ConsulResolver{})` 导出 `WithConsulResolver` 中间件别名
-- [ ] `register.go`：`Register(agentAddr, serviceID, host, port int)` + `Deregister`（Consul KV 写/删）
-- [ ] TDD：`resolver_test.go` 用 httptest 模拟 Consul KV API，断言 `Resolve` 返回的地址列表正确、空 KV 返回空；红→绿
-- [ ] 依赖：`github.com/hashicorp/consul/api`（`go get`）
-- [ ] commit `feat: infra/consul custom rpcx resolver + registry`
+- [x]读 `hubx/rpcx/pkg/rpcx/resolver/resolver.go` 确认 `Resolver` 接口与 `Register` 签名
+- [x]`resolver.go`：`type ConsulResolver struct{Client *consulapi.Client}` 实现 `Resolve(ctx, serviceID, targets, cfg)`——调 Consul KV `hubx/svc/<serviceID>` 读 `host:port` 列表；`Register("consul", &ConsulResolver{})` 导出 `WithConsulResolver` 中间件别名
+- [x]`register.go`：`Register(agentAddr, serviceID, host, port int)` + `Deregister`（Consul KV 写/删）
+- [x]TDD：`resolver_test.go` 用 httptest 模拟 Consul KV API，断言 `Resolve` 返回的地址列表正确、空 KV 返回空；红→绿
+- [x]依赖：`github.com/hashicorp/consul/api`（`go get`）
+- [x]commit `feat: infra/consul custom rpcx resolver + registry`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 7：docker 底座 + configs 灌入
 > **trace:** plan-ready.md → `### Task 7: docker 底座 + configs 灌入` | tasks.md → `- [ ] 1.7 docker 底座 + configs：compose 六件套（mysql 五库/kafka/consul/nacos/redis/jaeger）、init.sql、11 份服务配置、trace.yaml、seed-nacos.sh，`docker compose ps` 全绿（对应 Task 7）`
