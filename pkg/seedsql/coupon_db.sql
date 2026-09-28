@@ -41,3 +41,18 @@ CREATE TABLE IF NOT EXISTS points_log (
     created_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_user (user_id, created_at)
 ) ENGINE=InnoDB COMMENT='积分流水';
+
+-- 事务发件箱（outbox 模式：券核销 coupon.exchanged.v1 / 积分 points.granted.v1 事件，
+-- 后台 3s 轮询补发；DDL 与 docker/mysql/init.sql 逐字同步，改表结构两处必须同改）
+CREATE TABLE IF NOT EXISTS outbox (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    topic       VARCHAR(64)  NOT NULL,
+    event_type  VARCHAR(64)  NOT NULL,
+    payload     TEXT         NOT NULL,
+    traceparent VARCHAR(128) NOT NULL DEFAULT '' COMMENT '发送时随 header 透传，mq 关时为空',
+    status      TINYINT      NOT NULL DEFAULT 0 COMMENT '0 待发 1 已发 2 失败放弃',
+    retry_count INT          NOT NULL DEFAULT 0,
+    created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_status (status, created_at)
+) ENGINE=InnoDB COMMENT='事务发件箱（3s 轮询补发）';
