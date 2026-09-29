@@ -1,6 +1,8 @@
 # ============================================================
 # gateway 服务配置 —— xmiddleware 段（字段名对齐 configx 企业契约
 # configx/configs/config.enterprise.yaml，与 monolith 契约逐字一致）
+# + gateway 私有段（jwt / routes / rate_limit，服务自包含；
+#   与 apps/gateway/config.yaml 逐字同构）
 #
 # 灌入 Nacos：dataId hubx.gateway，group HUBX（configs/seed-nacos.sh）
 # 地址一律宿主侧值（服务不进 compose，go run 跑在宿主上；端口裁决见
@@ -33,3 +35,39 @@ xmiddleware:
         max_retries: 3
         slow_threshold: 100ms
         enable_trace: true
+
+# ============================================================
+# gateway 私有段（top-level "gateway"，routing.Load 统一读取；
+# Nacos key 级裁决可逐键覆盖）
+# ============================================================
+
+gateway:
+
+  # ----- JWT 验签（HS256，与 srv-user 签发侧同密钥；验一次，下游只读 Header）-----
+  jwt:
+    # 本地演示缺省值（与 srv-user jwtKeyDev 一致）；生产经 secret_env 注入
+    secret: "hubx-dev-jwt-secret"
+    # 环境变量优先（非空时覆盖 secret）
+    secret_env: "HUBX_JWT_SECRET"
+    # 期望签发方（srv-user 的 jwtIssuer）；token iss 不匹配即 401
+    issuer: "srv-user"
+
+  # ----- 路由表：path 前缀 → 目标服务名（配置驱动，不硬编码；
+  # 服务名 = consul 注册 ID，端口事实源 docs/superpowers/plans/local-docker-env.md）-----
+  # 前缀是 gateway 侧命名空间：出站路径去前缀后由目标 BFF 路由裁决。
+  # BFF 冒烟期（任务 11 前）consul KV 未注册时命中路由返回 502（目标未注册）。
+  routes:
+    - prefix: /api/app
+      service: bff-app
+    - prefix: /api/web
+      service: bff-web
+    - prefix: /api/mini
+      service: bff-mini
+    - prefix: /api/admin
+      service: bff-admin
+
+  # ----- 全局限流：cachex 固定窗口计数 rl:{ip}:{route}（On("cache") 门控，
+  # 读不到缓存放行；limit 0 = 关）-----
+  rate_limit:
+    limit: 100
+    window: 1m

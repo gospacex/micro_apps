@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"sleep 45; cat /private/tmp/claude-502/-Users-hyx-work-gowork-src-hubx-micro-apps/7151b599-35de-48cc-af9b-f5d800b9746d/tasks/bx6tweso7.output 2>/dev/null | tail -20\",\"description\":\"Check ti...",
-  "error": "Exit code 143\nCommand timed out after 2m 0s",
-  "timestamp": "2026-09-27T13:50:22.841Z",
-  "retry_count": 1
-}
