@@ -1,0 +1,68 @@
+# ============================================================
+# job 服务配置 —— xmiddleware 段（字段名对齐 configx 企业契约
+# configx/configs/config.enterprise.yaml，与 monolith 契约逐字一致）
+#
+# 灌入 Nacos：dataId hubx.job，group HUBX（configs/seed-nacos.sh）
+# 地址一律宿主侧值（服务不进 compose，go run 跑在宿主上；端口裁决见
+# docs/superpowers/plans/local-docker-env.md）：
+#   MySQL 127.0.0.1:3306 / Kafka 127.0.0.1:19093 / Redis 127.0.0.1:6379
+# 实例名 = 服务可部署单元名（<self>）：xmiddleware.{sqlx,cachex,mqx}.*.job
+# 密码走 env 占位：运行前 export HUBX_DB_PW=<与 docker/mysql/init.sql 一致>
+# （本地演示密码 hubx123）
+# job 不直连任何 DB（对账走 srv gRPC 只读流水，openspec 红线，无 xmiddleware.sqlx）。
+# 消费 order.completed.v1 / coupon.exchanged.v1；失败进 *.dlq，retry 重放。
+# ============================================================
+
+xmiddleware:
+
+  # ----- cachex：Redis（缓存/限流计数器/防重锁共用同一 Cache 接口）-----
+  cachex:
+    driver: redis
+    instances:
+      job:
+        addr: 127.0.0.1:6379
+        password: ""
+        db: 0
+        pool_size: 100
+        min_idle_conns: 10
+        pool_timeout: 30s
+        idle_timeout: 5m
+        dial_timeout: 5s
+        read_timeout: 3s
+        write_timeout: 3s
+        max_retries: 3
+        slow_threshold: 100ms
+        enable_trace: true
+
+  # ----- mqx：Kafka 消费者 + 重放生产者（job consume/retry）-----
+  mqx:
+    driver: kafka
+    instances:
+      job:
+        brokers:
+          - "127.0.0.1:19093"
+        call_chain_enabled: true
+        enable_trace: true
+        producer:
+          # retry 重放默认 topic；实际按消息原 topic 回发
+          topic: order.completed.v1
+          batch_size: 100
+          batch_timeout: 10ms
+          max_retries: 3
+          retry_backoff: 100ms
+          # acks=all：Sarama RequiredAcks -1 = WaitForAll
+          #（企业契约样例写 "all"，mqx loader 用 GetInt 读取，须写 -1 才等全量 ack）
+          required_acks: -1
+          compression: none
+        consumer:
+          # job consume 订阅两个业务事件（points.granted.v1 无消费端，链路终点）；
+          # job retry 另订阅各自 DLQ 并重放回原 topic：
+          #   order.completed.v1.dlq / coupon.exchanged.v1.dlq / points.granted.v1.dlq
+          group_id: job-order-v1
+          topics:
+            - order.completed.v1
+            - coupon.exchanged.v1
+          auto_commit: true
+          max_concurrency: 4
+          session_timeout: 30s
+          heartbeat_interval: 10s
