@@ -18,6 +18,8 @@ import (
 
 	userpb "hubx/micro_apps/pkg/kitex_gen/user"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"hubx/micro_apps/apps/srv-user/internal/service"
 	"hubx/micro_apps/infra/telemetry"
 )
@@ -27,30 +29,38 @@ type Server struct {
 	Svc *service.UserService
 }
 
-// guard 方法入口分层 span（telemetry.Start）
-func (s *Server) guard(ctx context.Context, method string) context.Context {
-	ctx, _ = telemetry.Start(ctx, "service", "user", method)
-	return ctx
+// guard 方法入口分层 span（telemetry.Start）；返回的 span 必须由调用方
+// defer End —— 丢弃句柄会让这一层永不导出，下游子 span 也就失去 parent。
+func (s *Server) guard(ctx context.Context, method string) (context.Context, trace.Span) {
+	return telemetry.Start(ctx, "service", "user", method)
 }
 
 // Register 注册（username/phone 查重 → 2001；密码 sha256-hex）
 func (s *Server) Register(ctx context.Context, req *userpb.RegisterReq) (*userpb.RegisterResp, error) {
-	return s.Svc.Register(s.guard(ctx, "Register"), req)
+	ctx, span := s.guard(ctx, "Register")
+	defer span.End()
+	return s.Svc.Register(ctx, req)
 }
 
 // Login 登录（JWT HS256 + auth_sessions 落库）
 func (s *Server) Login(ctx context.Context, req *userpb.LoginReq) (*userpb.LoginResp, error) {
-	return s.Svc.Login(s.guard(ctx, "Login"), req)
+	ctx, span := s.guard(ctx, "Login")
+	defer span.End()
+	return s.Svc.Login(ctx, req)
 }
 
 // GetProfile 查资料（users ⋈ user_profiles JOIN）
 func (s *Server) GetProfile(ctx context.Context, req *userpb.GetProfileReq) (*userpb.GetProfileResp, error) {
-	return s.Svc.GetProfile(s.guard(ctx, "GetProfile"), req)
+	ctx, span := s.guard(ctx, "GetProfile")
+	defer span.End()
+	return s.Svc.GetProfile(ctx, req)
 }
 
 // CheckUser 跨域身份校验
 func (s *Server) CheckUser(ctx context.Context, req *userpb.CheckUserReq) (*userpb.CheckUserResp, error) {
-	return s.Svc.CheckUser(s.guard(ctx, "CheckUser"), req)
+	ctx, span := s.guard(ctx, "CheckUser")
+	defer span.End()
+	return s.Svc.CheckUser(ctx, req)
 }
 
 // 编译期断言：Server 必须满足生成的 user.User 接口

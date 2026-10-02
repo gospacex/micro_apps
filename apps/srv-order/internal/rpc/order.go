@@ -19,6 +19,8 @@ import (
 
 	orderpb "hubx/micro_apps/pkg/kitex_gen/order"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"hubx/micro_apps/apps/srv-order/internal/middleware"
 	"hubx/micro_apps/apps/srv-order/internal/service"
 	"hubx/micro_apps/infra/telemetry"
@@ -31,20 +33,24 @@ type Server struct {
 	Limiter *middleware.RateLimiter
 }
 
-// guard 方法入口公共逻辑：分层 span + 限流（Limiter 为 nil 或放行返回 true）。
-// 返回 false 时调用方以 CodeRateLimited 直接回 resp。
-func (s *Server) guard(ctx context.Context, method string, userID int64) (context.Context, bool) {
-	ctx, _ = telemetry.Start(ctx, "service", "order", method)
+// guard 方法入口公共逻辑：分层 span（调用方必须 defer span.End()）+ 限流。
+//
+// span 必须由调用方 End：此前这里写成 `ctx, _ = telemetry.Start(...)`，
+// span 句柄被丢弃、永不 End —— 既不导出（Jaeger 看不到这一层），
+// 又让下游子 span 挂在悬空 parent 上（missing-parent）。
+func (s *Server) guard(ctx context.Context, method string, userID int64) (context.Context, trace.Span, bool) {
+	ctx, span := telemetry.Start(ctx, "service", "order", method)
 	if s.Limiter != nil && !s.Limiter.Allow(ctx, userID) {
-		return ctx, false
+		return ctx, span, false
 	}
-	return ctx, true
+	return ctx, span, true
 }
 
 // CreateOrder 下单（预占库存 + 本地事务 + outbox）
 func (s *Server) CreateOrder(ctx context.Context, req *orderpb.CreateOrderReq) (*orderpb.CreateOrderResp, error) {
 	resp := &orderpb.CreateOrderResp{UserId: req.GetUserId()}
-	ctx, ok := s.guard(ctx, "CreateOrder", req.GetUserId())
+	ctx, span, ok := s.guard(ctx, "CreateOrder", req.GetUserId())
+	defer span.End()
 	if !ok {
 		resp.Code, resp.Message = rateLimited()
 		return resp, nil
@@ -55,7 +61,8 @@ func (s *Server) CreateOrder(ctx context.Context, req *orderpb.CreateOrderReq) (
 // GetOrder 查单个订单 + 明细
 func (s *Server) GetOrder(ctx context.Context, req *orderpb.GetOrderReq) (*orderpb.GetOrderResp, error) {
 	resp := &orderpb.GetOrderResp{UserId: req.GetUserId(), OrderId: req.GetOrderId()}
-	ctx, ok := s.guard(ctx, "GetOrder", req.GetUserId())
+	ctx, span, ok := s.guard(ctx, "GetOrder", req.GetUserId())
+	defer span.End()
 	if !ok {
 		resp.Code, resp.Message = rateLimited()
 		return resp, nil
@@ -66,7 +73,8 @@ func (s *Server) GetOrder(ctx context.Context, req *orderpb.GetOrderReq) (*order
 // Report 4 表 JOIN 报表
 func (s *Server) Report(ctx context.Context, req *orderpb.ReportReq) (*orderpb.ReportResp, error) {
 	resp := &orderpb.ReportResp{UserId: req.GetUserId()}
-	ctx, ok := s.guard(ctx, "Report", req.GetUserId())
+	ctx, span, ok := s.guard(ctx, "Report", req.GetUserId())
+	defer span.End()
 	if !ok {
 		resp.Code, resp.Message = rateLimited()
 		return resp, nil
@@ -77,7 +85,8 @@ func (s *Server) Report(ctx context.Context, req *orderpb.ReportReq) (*orderpb.R
 // ListOrders 只读订单流水
 func (s *Server) ListOrders(ctx context.Context, req *orderpb.ListOrdersReq) (*orderpb.ListOrdersResp, error) {
 	resp := &orderpb.ListOrdersResp{UserId: req.GetUserId()}
-	ctx, ok := s.guard(ctx, "ListOrders", req.GetUserId())
+	ctx, span, ok := s.guard(ctx, "ListOrders", req.GetUserId())
+	defer span.End()
 	if !ok {
 		resp.Code, resp.Message = rateLimited()
 		return resp, nil

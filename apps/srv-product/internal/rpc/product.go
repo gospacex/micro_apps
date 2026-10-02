@@ -18,6 +18,8 @@ import (
 
 	productpb "hubx/micro_apps/pkg/kitex_gen/product"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"hubx/micro_apps/apps/srv-product/internal/service"
 	"hubx/micro_apps/infra/telemetry"
 )
@@ -27,25 +29,31 @@ type Server struct {
 	Svc *service.ProductService
 }
 
-// guard 方法入口分层 span（telemetry.Start）
-func (s *Server) guard(ctx context.Context, method string) context.Context {
-	ctx, _ = telemetry.Start(ctx, "service", "product", method)
-	return ctx
+// guard 方法入口分层 span（telemetry.Start）；返回的 span 必须由调用方
+// defer End —— 丢弃句柄会让这一层永不导出，下游子 span 也就失去 parent。
+func (s *Server) guard(ctx context.Context, method string) (context.Context, trace.Span) {
+	return telemetry.Start(ctx, "service", "product", method)
 }
 
 // GetProduct 查商品（3 表 JOIN + 热点缓存）
 func (s *Server) GetProduct(ctx context.Context, req *productpb.GetProductReq) (*productpb.GetProductResp, error) {
-	return s.Svc.GetProduct(s.guard(ctx, "GetProduct"), req)
+	ctx, span := s.guard(ctx, "GetProduct")
+	defer span.End()
+	return s.Svc.GetProduct(ctx, req)
 }
 
 // ReserveStock 库存预占（FOR UPDATE 行锁事务）
 func (s *Server) ReserveStock(ctx context.Context, req *productpb.ReserveStockReq) (*productpb.ReserveStockResp, error) {
-	return s.Svc.ReserveStock(s.guard(ctx, "ReserveStock"), req)
+	ctx, span := s.guard(ctx, "ReserveStock")
+	defer span.End()
+	return s.Svc.ReserveStock(ctx, req)
 }
 
 // ListProducts 商品列表
 func (s *Server) ListProducts(ctx context.Context, req *productpb.ListProductsReq) (*productpb.ListProductsResp, error) {
-	return s.Svc.ListProducts(s.guard(ctx, "ListProducts"), req)
+	ctx, span := s.guard(ctx, "ListProducts")
+	defer span.End()
+	return s.Svc.ListProducts(ctx, req)
 }
 
 // 编译期断言：Server 必须满足生成的 product.Product 接口

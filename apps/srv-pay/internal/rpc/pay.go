@@ -18,6 +18,8 @@ import (
 
 	paypb "hubx/micro_apps/pkg/kitex_gen/pay"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"hubx/micro_apps/apps/srv-pay/internal/service"
 	"hubx/micro_apps/infra/telemetry"
 )
@@ -27,25 +29,31 @@ type Server struct {
 	Svc *service.PayService
 }
 
-// guard 方法入口分层 span（telemetry.Start）
-func (s *Server) guard(ctx context.Context, method string) context.Context {
-	ctx, _ = telemetry.Start(ctx, "service", "pay", method)
-	return ctx
+// guard 方法入口分层 span（telemetry.Start）；返回的 span 必须由调用方
+// defer End —— 丢弃句柄会让这一层永不导出，下游子 span 也就失去 parent。
+func (s *Server) guard(ctx context.Context, method string) (context.Context, trace.Span) {
+	return telemetry.Start(ctx, "service", "pay", method)
 }
 
 // Pay 开支付单
 func (s *Server) Pay(ctx context.Context, req *paypb.PayReq) (*paypb.PayResp, error) {
-	return s.Svc.Pay(s.guard(ctx, "Pay"), req)
+	ctx, span := s.guard(ctx, "Pay")
+	defer span.End()
+	return s.Svc.Pay(ctx, req)
 }
 
 // Callback 渠道异步回调
 func (s *Server) Callback(ctx context.Context, req *paypb.PayCallbackReq) (*paypb.PayCallbackResp, error) {
-	return s.Svc.Callback(s.guard(ctx, "Callback"), req)
+	ctx, span := s.guard(ctx, "Callback")
+	defer span.End()
+	return s.Svc.Callback(ctx, req)
 }
 
 // ListPayFlows 支付流水
 func (s *Server) ListPayFlows(ctx context.Context, req *paypb.ListPayFlowsReq) (*paypb.ListPayFlowsResp, error) {
-	return s.Svc.ListPayFlows(s.guard(ctx, "ListPayFlows"), req)
+	ctx, span := s.guard(ctx, "ListPayFlows")
+	defer span.End()
+	return s.Svc.ListPayFlows(ctx, req)
 }
 
 // 编译期断言：Server 必须满足生成的 pay.Pay 接口
