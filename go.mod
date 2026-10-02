@@ -29,11 +29,12 @@ replace github.com/gospacex/cachex/redis => ../cachex/redis
 
 replace github.com/gospacex/mqx/kafka => ../mqx/kafka
 
-replace github.com/kitexx/kitex-framework => ../rpcx
 
 require (
+	github.com/cloudwego/hertz v0.10.6
 	github.com/cloudwego/kitex v0.16.3
 	github.com/cloudwego/prutal v0.1.3
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gospacex/cachex v0.0.0
 	github.com/gospacex/cachex/redis v0.0.0
 	github.com/gospacex/configx v0.0.0
@@ -42,9 +43,10 @@ require (
 	github.com/gospacex/mqx v0.0.1
 	github.com/gospacex/mqx/kafka v0.0.0
 	github.com/gospacex/otelx v0.0.0-00010101000000-000000000000
+	github.com/gospacex/traceflag v0.0.0
 	github.com/gospacex/webx v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/consul/api v1.34.5
-	github.com/kitexx/kitex-framework v0.0.0-00010101000000-000000000000
+	github.com/kitex-contrib/obs-opentelemetry v0.3.0
 	github.com/spf13/cobra v1.10.2
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
@@ -75,7 +77,6 @@ require (
 	github.com/cloudwego/fastpb v0.0.6 // indirect
 	github.com/cloudwego/frugal v0.3.1 // indirect
 	github.com/cloudwego/gopkg v0.2.0 // indirect
-	github.com/cloudwego/hertz v0.10.6 // indirect
 	github.com/cloudwego/localsession v0.2.1 // indirect
 	github.com/cloudwego/netpoll v0.7.5 // indirect
 	github.com/cloudwego/runtimex v0.1.1 // indirect
@@ -89,14 +90,12 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/pprof v0.0.0-20240727154555-813a5fbdbec8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gospacex/traceflag v0.0.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
@@ -118,7 +117,6 @@ require (
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/jmespath/go-jmespath v0.3.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/kitex-contrib/obs-opentelemetry v0.3.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect

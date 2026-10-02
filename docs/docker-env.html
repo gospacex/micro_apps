@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>本地 Docker 容器清单 · 2026-10-02</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #ffffff; --border: #e3e6eb;
+    --text: #1f2328; --muted: #656d76; --accent: #0969da;
+    --ok: #1a7f37; --ok-bg: #dafbe1; --stop: #cf222e; --stop-bg: #ffebe9;
+    --warn-bg: #fff8c5; --warn: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --card: #161b22; --border: #30363d;
+      --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+      --ok: #3fb950; --ok-bg: #12261e; --stop: #f85149; --stop-bg: #2d1114;
+      --warn-bg: #2b2210; --warn: #d29922;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 28px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card .n { font-size: 24px; font-weight: 600; }
+  .card .l { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  h2 { font-size: 16px; margin: 28px 0 10px; padding-left: 9px; border-left: 3px solid var(--accent); }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+  th { background: rgba(127,127,127,.08); font-weight: 600; font-size: 12px; color: var(--muted); }
+  tr:last-child td { border-bottom: none; }
+  td.name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; white-space: nowrap; }
+  td.port { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  td.img { font-size: 12px; color: var(--muted); word-break: break-all; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .t-ok { background: var(--ok-bg); color: var(--ok); }
+  .t-stop { background: var(--stop-bg); color: var(--stop); }
+  .note { background: var(--warn-bg); border: 1px solid var(--border); border-left: 3px solid var(--warn);
+          border-radius: 6px; padding: 12px 14px; margin: 14px 0; font-size: 13px; }
+  .note b { color: var(--warn); }
+  code { background: rgba(127,127,127,.15); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .proj { font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>本地 Docker 容器清单</h1>
+  <div class="sub">Docker Desktop 29.7.2 · 采集于 2026-10-02 11:20 · 共 31 个容器 / 2 个 compose 项目</div>
+
+  <div class="cards">
+    <div class="card"><div class="n">31</div><div class="l">容器总数</div></div>
+    <div class="card"><div class="n" style="color:var(--ok)">25</div><div class="l">运行中</div></div>
+    <div class="card"><div class="n" style="color:var(--stop)">6</div><div class="l">已停止</div></div>
+    <div class="card"><div class="n">45</div><div class="l">镜像 (17.27GB)</div></div>
+    <div class="card"><div class="n">65</div><div class="l">数据卷 (5.228GB)</div></div>
+    <div class="card"><div class="n">10.03GB</div><div class="l">可回收镜像 (58%)</div></div>
+  </div>
+
+  <h2>micro_apps 六件套 <span class="proj">compose 项目 hubx-micro-apps · 全部 healthy</span></h2>
+  <table>
+    <tr><th>容器</th><th>镜像</th><th>宿主端口</th><th>状态</th></tr>
+    <tr><td class="name">hubx-ma-consul</td><td class="img">hashicorp/consul:1.22.4</td><td class="port">8500, 8600</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+    <tr><td class="name">hubx-ma-mysql</td><td class="img">mysql:8.0</td><td class="port">3306</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+    <tr><td class="name">hubx-ma-redis</td><td class="img">redis:7</td><td class="port">6379</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+    <tr><td class="name">hubx-ma-nacos</td><td class="img">nacos/nacos-server:v2.4.2</td><td class="port">8848, 9848</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+    <tr><td class="name">hubx-ma-jaeger</td><td class="img">jaegertracing/all-in-one:1.63.0</td><td class="port">4317-4318, 16686</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+    <tr><td class="name">hubx-ma-kafka</td><td class="img">bitnami/kafka:3.9.0</td><td class="port">19093 → 9092</td><td><span class="tag t-ok">Up 14h</span></td></tr>
+  </table>
+
+  <div class="note">
+    <b>Jaeger 双端口已就位</b>：<code>hubx-ma-jaeger</code> 同时映射 4317(gRPC) 与 4318(HTTP)。
+    micro_apps 的 otelx 走 <b>OTLP/HTTP 4318</b>，端口已通，端到端冒烟（此前标记 F4）具备实跑条件。
+  </div>
+
+  <h2>其他中间件 <span class="proj">compose 项目 dockers · 19 个运行中</span></h2>
+  <table>
+    <tr><th>容器</th><th>镜像</th><th>宿主端口</th><th>状态</th></tr>
+    <tr><td class="name">apollo</td><td class="img">nobodyiam/apollo-quick-start:2.4.0</td><td class="port">18070, 18085</td><td><span class="tag t-ok">Up 16h</span></td></tr>
+    <tr><td class="name">etcd</td><td class="img">etcd:v3.5.0</td><td class="port">2379-2380</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">etcdkeeper</td><td class="img">evildecay/etcdkeeper:v0.7.6</td><td class="port">8081 → 8080</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">mongo1</td><td class="img">mongo:7.0</td><td class="port">27018 → 27017</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">mongo2</td><td class="img">mongo:7.0</td><td class="port">27019 → 27017</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">mongo3</td><td class="img">mongo:7.0</td><td class="port">27020 → 27017</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">postgres</td><td class="img">postgres:16-alpine</td><td class="port">5432</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">minio</td><td class="img">minio/minio:RELEASE.2024-09-13</td><td class="port">9000-9001</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">rustfs</td><td class="img">rustfs/rustfs:latest</td><td class="port">9010 → 9000</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">rabbitmq</td><td class="img">rabbitmq:3-management</td><td class="port">5672, 15672</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">nsqd</td><td class="img">nsqio/nsq:v1.3.0</td><td class="port">4150-4151</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">nsqlookupd</td><td class="img">nsqio/nsq:v1.3.0</td><td class="port">4160-4161</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">nsqadmin</td><td class="img">nsqio/nsq:v1.3.0</td><td class="port">4171</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">rocketmq-namesrv</td><td class="img">apache/rocketmq:5.2.0</td><td class="port">9876</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">rocketmq-broker</td><td class="img">apache/rocketmq:5.2.0</td><td class="port">10909, 10911</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">keydb</td><td class="img">eqalpha/keydb:x86_64_v6.3.4</td><td class="port">6380 → 6379</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">memcached</td><td class="img">memcached:alpine</td><td class="port">11211</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">chroma</td><td class="img">chromadb/chroma:latest</td><td class="port">8000</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+    <tr><td class="name">freellmapi</td><td class="img">freellmapi:pr1204</td><td class="port">3001</td><td><span class="tag t-ok">Up 17h</span></td></tr>
+  </table>
+
+  <h2>已停止容器 <span class="proj">与六件套同类型，疑被 hubx-ma-* 顶替</span></h2>
+  <table>
+    <tr><th>容器</th><th>镜像</th><th>宿主端口</th><th>退出状态</th></tr>
+    <tr><td class="name">consul</td><td class="img">hashicorp/consul:1.22.4</td><td class="port">—</td><td><span class="tag t-stop">Exited (1)</span></td></tr>
+    <tr><td class="name">nacos</td><td class="img">nacos/nacos-server:v2.4.2</td><td class="port">—</td><td><span class="tag t-stop">Exited (143)</span></td></tr>
+    <tr><td class="name">kafka</td><td class="img">bitnami/kafka:3.9.0</td><td class="port">—</td><td><span class="tag t-stop">Exited (143)</span></td></tr>
+    <tr><td class="name">mysql</td><td class="img">mysql:8.4</td><td class="port">—</td><td><span class="tag t-stop">Exited (0)</span></td></tr>
+    <tr><td class="name">redis</td><td class="img">redis:8.4</td><td class="port">—</td><td><span class="tag t-stop">Exited (0)</span></td></tr>
+    <tr><td class="name">jaeger</td><td class="img">jaegertracing/all-in-one:1.63.0</td><td class="port">—</td><td><span class="tag t-stop">Exited (0)</span></td></tr>
+  </table>
+
+  <div class="note">
+    <b>两套同名中间件共存</b>：无前缀的 <code>consul/mysql/redis/nacos/jaeger/kafka</code> 与 <code>hubx-ma-*</code> 六件套类型完全重合，
+    均在 14 小时前（即六件套启动时刻）停止。<code>consul</code> 退出码 <b>1</b>（异常，疑端口 8500 被 <code>hubx-ma-consul</code> 抢占），
+    其余 143=SIGTERM、0=正常退出。这 6 个容器及其卷是主要可回收对象。
+  </div>
+
+  <h2>磁盘占用</h2>
+  <table>
+    <tr><th>类型</th><th>总数</th><th>活跃</th><th>占用</th><th>可回收</th></tr>
+    <tr><td>Images</td><td>45</td><td>22</td><td>17.27GB</td><td>10.03GB (58%)</td></tr>
+    <tr><td>Containers</td><td>31</td><td>25</td><td>1.288GB</td><td>32.65kB (0%)</td></tr>
+    <tr><td>Local Volumes</td><td>65</td><td>9</td><td>5.228GB</td><td>5.009GB (95%)</td></tr>
+    <tr><td>Build Cache</td><td>31</td><td>0</td><td>1.258GB</td><td>921.3MB</td></tr>
+  </table>
+  <div class="note">
+    容器可写层最大者：<code>hubx-ma-kafka</code> 1.18GB（virtual 1.62GB），其次是 <code>rocketmq-broker</code> 38.8MB。
+    清理优先级：Local Volumes 5.009GB（95% 可回收，需先确认卷归属）＞ 镜像 10.03GB ＞ Build Cache 921MB。
+  </div>
+</div>
+</body>
+</html>

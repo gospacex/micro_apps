@@ -5,7 +5,8 @@
 #   - Kafka 用 bitnami KRaft 单节点（无 zookeeper 容器），宿主映射 19093→9092
 #     （宿主 9092/19092 被既有容器占用）；KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
 #     自动建 topic（order.completed.v1 / coupon.exchanged.v1 / points.granted.v1 及各自 .dlq）
-#   - MySQL/Consul/Nacos/Redis/Jaeger 直接用宿主默认端口 3306/8500+8600/8848/6379/4317+16686
+#   - MySQL/Consul/Nacos/Redis/Jaeger 直接用宿主默认端口 3306/8500+8600/8848/6379/4317+4318+16686
+#     （Jaeger 两个 OTLP 端口都映射：4318 为服务实际使用的 HTTP 通道，4317 备用）
 #   - 宿主已在跑 hubx-logx-* 等容器（勿 kill），端口以裁决表为准
 #   - 不挂命名数据卷：`docker compose down` 后重 `up` 会重跑 init.sql，保证从零可复跑
 #
@@ -152,8 +153,8 @@ services:
       COLLECTOR_OTLP_GRPC_PORT: "4317"
       COLLECTOR_OTLP_HTTP_PORT: "4318"
     ports:
-      - "4317:4317" # OTLP gRPC（otelx 导出端点 127.0.0.1:4317）
-      - "4318:4318" # OTLP HTTP
+      - "4317:4317" # OTLP gRPC（保留备用；otelx 未走此通道）
+      - "4318:4318" # OTLP HTTP —— 各服务 telemetry.Init 的导出端点 127.0.0.1:4318
       - "16686:16686" # Jaeger UI
     healthcheck:
       # 镜像内有 busybox wget；14269 是 jaeger admin 端口，就绪后返回 200
