@@ -230,7 +230,7 @@ micro_apps/
 - [x] `seed-nacos.sh`：`curl` Nacos OpenAPI 逐个 publish `trace.yaml` + `services/*.yaml`（dataId 命名规则：`trace.yaml` → dataId `hubx.trace` group `HUBX`；`services/<svc>.yaml` → dataId `hubx.<svc>`）
 - [x] 验证：`docker compose up -d && docker compose ps` 全绿；`mysql -h127.0.0.1 -uuser_rw -p<pw> -e "show tables" user_db` 5 库可连；commit `feat: docker base + nacos config seed`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x]**Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 8：srv 模板服务（srv-order 先行，作为 5 个 srv 的模板）
 > **trace:** plan-ready.md → `### Task 8: srv 模板服务（srv-order 先行，作为 5 个 srv 的模板）` | tasks.md → `- [ ] 2.1 srv-order 模板服务：装配顺序 main + 库内事务/跨域 gRPC 协作 repository + gRPC handler + outbox 事件 + 限流/身份中间件，手动冒烟 SQL span 可数（对应 Task 8）`
@@ -238,11 +238,11 @@ micro_apps/
 
 **文件：** 创建 `apps/srv-order/{cmd/srv-order/main.go, internal/{service,repository,rpc,middleware}/, config.yaml}`
 
-- [ ] `main.go` 按规格第 5 节装配顺序（configx→telemetry→logx→infra→rpc server→webx 健康探针→优雅退出）；**头部注释逐字写装配顺序约束（11 份同构）**
-- [ ] `repository/`：GORM `dbx.Open`（经 `dbxconfig.LoadDBConfigFromConfigx`）；`CreateOrderTx`（orders+order_items 事务 + 扣 inventories——注意 inventories 在 product_db，**不能跨库 JOIN/事务**，改为：事务内写本地 order_db，库存扣减走 srv-product 的 gRPC `ReserveStock`，失败回滚本地事务——这是跨库铁律的代码示范）；`GetOrder`（2 表 JOIN，`Find`）；`Report`（4 表 JOIN，`Find`）；`ListOrders`（只读流水）
-- [ ] `rpc/`：实现 `pkg/kitex_gen/order` 生成的 `Server` 接口（`CreateOrder/GetOrder/Report/ListOrders` 四个 gRPC handler）；每个 handler 里 `telemetry.Start(ctx,"service","order","CreateOrder")` + 调 service 层
-- [ ] `service/`：业务逻辑 + 发 `OrderCompleted` 事件（`infra/drivers.NewProducer("order")` → `Send(ctx, "order.completed.v1", mqx.NewHeader().With("traceparent", tp), json)`；traceparent 从 `otel.GetTextMapPropagator().Inject` 取；**traceparent 写入受 `pkgconfigx.On("mq")` 门控**——mq 关时不写头）；outbox 表（order_db 内 `outbox` 表）+ 3s 轮询补发（`time.Ticker` goroutine）
-- [ ] `middleware/`：自保护限流（cachex `Set/Get` + TTL，`pkgconfigx.On("cache")` 门控）+ 内网身份校验（读 `meta.HeaderUserID`）
+- [x] `main.go` 按规格第 5 节装配顺序（configx→telemetry→logx→infra→rpc server→webx 健康探针→优雅退出）；**头部注释逐字写装配顺序约束（11 份同构）**
+- [x] `repository/`：GORM `dbx.Open`（经 `dbxconfig.LoadDBConfigFromConfigx`）；`CreateOrderTx`（orders+order_items 事务 + 扣 inventories——注意 inventories 在 product_db，**不能跨库 JOIN/事务**，改为：事务内写本地 order_db，库存扣减走 srv-product 的 gRPC `ReserveStock`，失败回滚本地事务——这是跨库铁律的代码示范）；`GetOrder`（2 表 JOIN，`Find`）；`Report`（4 表 JOIN，`Find`）；`ListOrders`（只读流水）
+- [x] `rpc/`：实现 `pkg/kitex_gen/order` 生成的 `Server` 接口（`CreateOrder/GetOrder/Report/ListOrders` 四个 gRPC handler）；每个 handler 里 `telemetry.Start(ctx,"service","order","CreateOrder")` + 调 service 层
+- [x] `service/`：业务逻辑 + 发 `OrderCompleted` 事件（`infra/drivers.NewProducer("order")` → `Send(ctx, "order.completed.v1", mqx.NewHeader().With("traceparent", tp), json)`；traceparent 从 `otel.GetTextMapPropagator().Inject` 取；**traceparent 写入受 `pkgconfigx.On("mq")` 门控**——mq 关时不写头）；outbox 表（order_db 内 `outbox` 表）+ 3s 轮询补发（`time.Ticker` goroutine）
+- [x] `middleware/`：自保护限流（cachex `Set/Get` + TTL，`pkgconfigx.On("cache")` 门控）+ 内网身份校验（读 `meta.HeaderUserID`）
 - [ ] 验证：`go build ./apps/srv-order/...` 过；起 mysql + `go run` 手动调 `CreateOrder`（curl 走 rpcx 不行，用 `pkg/kitex_gen/order` 的 client + `rpcx.OTel.InitShutdown` 小测试程序跑通，或直接写一个 `_smoke` 的 main）；SQL span 数（stdout exporter 数）；commit `feat: srv-order template service (join/outbox/mq)`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
@@ -253,10 +253,10 @@ micro_apps/
 
 **文件：** 创建 `apps/srv-{user,product,pay,coupon}/`（各自 cmd/internal/config.yaml，结构同任务 8）
 
-- [ ] srv-user：`users ⋈ user_profiles` 连表（`Find`）；JWT 签发/校验（`golang-jwt/jwt/v5`，HS256，密钥走配置）；`auth_sessions` 表写登录态
-- [ ] srv-product：`products ⋈ categories ⋈ inventories` 连表（`Find`）；`product:hot:{id}` 缓存（TTL 30s，cachex redis）；`ReserveStock` gRPC 扣库存（`FOR UPDATE` 行锁 + `pkgconfigx.On("db")` 门控的 SQL span）
-- [ ] srv-pay：`pay_orders` / `pay_callbacks` 两表；`Pay` 事务（insert + 更新 state）；`ListPayFlows` 只读流水（对账数据源）
-- [ ] srv-coupon：`coupons` / `user_coupons` / `points_log` 三表；`Consume`（核销，幂等：`user_coupons` 唯一约束防重）；`GrantPoints`（积分，job 调用入口，发 `PointsGranted` 事件）
+- [x] srv-user：`users ⋈ user_profiles` 连表（`Find`）；JWT 签发/校验（`golang-jwt/jwt/v5`，HS256，密钥走配置）；`auth_sessions` 表写登录态
+- [x] srv-product：`products ⋈ categories ⋈ inventories` 连表（`Find`）；`product:hot:{id}` 缓存（TTL 30s，cachex redis）；`ReserveStock` gRPC 扣库存（`FOR UPDATE` 行锁 + `pkgconfigx.On("db")` 门控的 SQL span）
+- [x] srv-pay：`pay_orders` / `pay_callbacks` 两表；`Pay` 事务（insert + 更新 state）；`ListPayFlows` 只读流水（对账数据源）
+- [x] srv-coupon：`coupons` / `user_coupons` / `points_log` 三表；`Consume`（核销，幂等：`user_coupons` 唯一约束防重）；`GrantPoints`（积分，job 调用入口，发 `PointsGranted` 事件）
 - [ ] 验证：5 个 srv `go build ./apps/...` 全过；各起一个（mysql 已建库）跑通核心方法；commit `feat: srv user/product/pay/coupon`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
@@ -267,11 +267,11 @@ micro_apps/
 
 **文件：** 创建 `apps/gateway/{cmd/gateway/main.go, internal/{auth,ratelimit,routing,proxy}/, config.yaml}`
 
-- [ ] `auth/`：JWT 验签一次（`golang-jwt`），解出 `user_id/roles` 写 `meta.HeaderUserID` 等 Header，透传给下游 BFF（**不再二次验签**）
-- [ ] `ratelimit/`：全局限流（cachex `Set NX EX` 计数器，`rl:{ip}:{route}`，`pkgconfigx.On("cache")` 门控）
-- [ ] `routing/`：路由表 `path → 目标 BFF/SRV 服务名`（配置驱动，不硬编码）+ 灰度头透传（`meta.HeaderGray`）
-- [ ] `proxy/`：HTTP→gRPC 转发（rpcx client 桩，`WithTracingMiddleware` 自动注入 traceparent；**根 span 在 gateway 诞生**——`telemetry.Start(ctx,"handler","gateway","Proxy:"+path)` 作为整条 trace 的根）
-- [ ] `main.go` 装配同任务 8 模板（gateway 无 DB，infra 只装缓存+限流）
+- [x] `auth/`：JWT 验签一次（`golang-jwt`），解出 `user_id/roles` 写 `meta.HeaderUserID` 等 Header，透传给下游 BFF（**不再二次验签**）
+- [x] `ratelimit/`：全局限流（cachex `Set NX EX` 计数器，`rl:{ip}:{route}`，`pkgconfigx.On("cache")` 门控）
+- [x] `routing/`：路由表 `path → 目标 BFF/SRV 服务名`（配置驱动，不硬编码）+ 灰度头透传（`meta.HeaderGray`）
+- [x] `proxy/`：HTTP→gRPC 转发（rpcx client 桩，`WithTracingMiddleware` 自动注入 traceparent；**根 span 在 gateway 诞生**——`telemetry.Start(ctx,"handler","gateway","Proxy:"+path)` 作为整条 trace 的根）
+- [x] `main.go` 装配同任务 8 模板（gateway 无 DB，infra 只装缓存+限流）
 - [ ] 验证：`go build`；起 gateway + 一个 bff + 一个 srv，curl 带 JWT 打全链路，stdout exporter 看到 `handler.gateway.Proxy` 根 span 串着下游；commit `feat: gateway (root span/jwt/ratelimit/routing)`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
@@ -282,10 +282,10 @@ micro_apps/
 
 **文件：** 创建 `apps/bff-app/{cmd/bff-app/main.go, internal/{handler,aggregate,dto,cache}/, config.yaml}`
 
-- [ ] `aggregate/`：`errgroup` 并发调多 srv（`pkg/kitex_gen` 的 client 桩 + `rpcx.WithTracingMiddleware`）+ 降级兜底（某 srv 挂返回默认值，`gofail` 或返回 sentinel error）+ 字段裁剪（`dto/` 按端裁）
-- [ ] `cache/`：`bff:app:{resource}:{user_id}` 展示层缓存（命中直接返回不打 srv；miss 走 errgroup；TTL 60s，cachex redis）
-- [ ] `handler/`：webx `NewServiceWithResponse`（统一响应封装）+ 就绪探针（`WithReadyProbes`）
-- [ ] `main.go` 装配同任务 8 模板（BFF 无 DB，infra 只装缓存+MQ 消费）
+- [x] `aggregate/`：`errgroup` 并发调多 srv（`pkg/kitex_gen` 的 client 桩 + `rpcx.WithTracingMiddleware`）+ 降级兜底（某 srv 挂返回默认值，`gofail` 或返回 sentinel error）+ 字段裁剪（`dto/` 按端裁）
+- [x] `cache/`：`bff:app:{resource}:{user_id}` 展示层缓存（命中直接返回不打 srv；miss 走 errgroup；TTL 60s，cachex redis）
+- [x] `handler/`：webx `NewServiceWithResponse`（统一响应封装）+ 就绪探针（`WithReadyProbes`）
+- [x] `main.go` 装配同任务 8 模板（BFF 无 DB，infra 只装缓存+MQ 消费）
 - [ ] 验证：`go build`；起 bff-app + 依赖的 srv，curl 聚合接口，stdout 看到 errgroup 并发 + 缓存命中/未命中两种 span；commit `feat: bff-app template (errgroup aggregate/degrade/cache)`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
@@ -296,8 +296,8 @@ micro_apps/
 
 **文件：** 创建 `apps/bff-{web,mini,admin}/`（各自 cmd/internal/config.yaml，结构同任务 11）
 
-- [ ] 差异按端隔离：bff-web 多了 SEO/SSR 相关字段（`dto` 裁剪不同）；bff-mini 多了小程序码字段；bff-admin 接全部 5 个 srv 的只读接口 + 管理端路由（与 C 端隔离，单独路由组）
-- [ ] 4 个 BFF 的 `aggregate`/`handler`/`cache` 按端参数化（不共享代码，各写一份，允许 80% 重复——规格裁决"独立目录、无共享代码"）
+- [x] 差异按端隔离：bff-web 多了 SEO/SSR 相关字段（`dto` 裁剪不同）；bff-mini 多了小程序码字段；bff-admin 接全部 5 个 srv 的只读接口 + 管理端路由（与 C 端隔离，单独路由组）
+- [x] 4 个 BFF 的 `aggregate`/`handler`/`cache` 按端参数化（不共享代码，各写一份，允许 80% 重复——规格裁决"独立目录、无共享代码"）
 - [ ] 验证：4 个 BFF `go build`；各起一个打聚合接口；commit `feat: bff web/mini/admin`
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）

@@ -68,7 +68,7 @@
 - 验证方式：`go test ./infra/consul/`；commit `feat: infra/consul custom rpcx resolver + registry`
 
 ### Task 7: docker 底座 + configs 灌入
-- [ ] **任务完成**（与 superpowers plan `Task 7`、`tasks.md` 对应条目同步勾选）
+- [x] **任务完成**（与 superpowers plan `Task 7`、`tasks.md` 对应条目同步勾选）
 - 目标：六件套中间件底座 + 11 份服务配置 + Nacos 灌入脚本
 - 步骤：
   1. compose.yaml（mysql/kafka KRaft 自动建 topic/consul/nacos/redis/jaeger 4317+16686，各带健康检查）— 文件：docker/compose.yaml — 验证：`docker compose up -d && docker compose ps` 全绿
