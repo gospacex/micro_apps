@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
@@ -28,6 +29,7 @@ import (
 	couponpb "hubx/micro_apps/pkg/kitex_gen/coupon"
 
 	"hubx/micro_apps/apps/srv-coupon/internal/repository"
+	"hubx/micro_apps/infra/telemetry"
 	"hubx/micro_apps/pkg/codes"
 	"hubx/micro_apps/pkg/events"
 )
@@ -257,6 +259,8 @@ type OutboxRunner struct {
 	repo     *repository.CouponRepository
 	producer mqx.Producer
 	logger   logx.Logger
+	// traceOn 语义 = config Trace.On("mq")：mq 不入链时不打 messaging span
+	traceOn bool
 
 	stop chan struct{}
 	done chan struct{}
@@ -264,11 +268,19 @@ type OutboxRunner struct {
 }
 
 // NewOutboxRunner 构造（producer 允许 nil：Start 不启动，仅累积待发事件）
-func NewOutboxRunner(repo *repository.CouponRepository, producer mqx.Producer, logger logx.Logger) *OutboxRunner {
+//
+// traceOn 为可变参：调用点（cmd/srv-coupon/main.go）暂按 3 参调用，缺省取
+// true——mq 关闭时写入侧落库的 traceparent 必为空串，续链分支本就不会进入，
+// 缺省值不会破「mq 关则无 span」的语义。
+func NewOutboxRunner(repo *repository.CouponRepository, producer mqx.Producer, logger logx.Logger, traceOn ...bool) *OutboxRunner {
 	if logger == nil {
 		logger = logx.GetGlobal()
 	}
-	return &OutboxRunner{repo: repo, producer: producer, logger: logger, stop: make(chan struct{}), done: make(chan struct{}), once: make(chan struct{})}
+	on := true
+	for _, v := range traceOn {
+		on = v
+	}
+	return &OutboxRunner{repo: repo, producer: producer, logger: logger, traceOn: on, stop: make(chan struct{}), done: make(chan struct{}), once: make(chan struct{})}
 }
 
 // Start 启动 ticker（幂等；producer 为 nil 时 no-op）
@@ -351,7 +363,19 @@ func (r *OutboxRunner) flushOnce() {
 			abandon = append(abandon, ev.ID)
 			continue
 		}
-		if serr := r.producer.Send(context.Background(), msg); serr != nil {
+		// messaging 续链：mq 开关开时从 outbox 行内持久化的 traceparent 重建
+		// 发放链路 ctx，send span 挂回原 trace；mq 关时退化为无 span 裸发送。
+		// 逐条 End（span 不跨迭代），单条粒度与 srv-order 的 sendOne 对齐。
+		sendCtx := context.Background()
+		if r.traceOn && ev.Traceparent != "" {
+			sendCtx = otel.GetTextMapPropagator().Extract(sendCtx,
+				propagation.MapCarrier{events.TraceHeaderKey: ev.Traceparent})
+			var span trace.Span
+			sendCtx, span = telemetry.Start(sendCtx, "messaging", "outbox", "send")
+			span.SetAttributes(attribute.String("messaging.topic", ev.Topic))
+			defer span.End()
+		}
+		if serr := r.producer.Send(sendCtx, msg); serr != nil {
 			if r.logger != nil {
 				r.logger.WarnContext(context.Background(), "outbox send failed",
 					logx.Int("outbox.id", int(ev.ID)), logx.Err(serr))

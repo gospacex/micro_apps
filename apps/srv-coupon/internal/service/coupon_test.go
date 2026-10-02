@@ -14,6 +14,11 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
 	"hubx/micro_apps/apps/srv-coupon/internal/repository"
 	"hubx/micro_apps/pkg/events"
 )
@@ -121,6 +126,49 @@ func TestOutboxRunnerFlush(t *testing.T) {
 	}
 	if len(pending) != 0 {
 		t.Fatalf("pending rest = %+v (want 0)", pending)
+	}
+}
+
+// TestFlushOnceContinuesTrace：补发 loop 里的 send 必须挂回发放链路
+// （回归 producer.Send(context.Background(), msg) 丢链）。
+func TestFlushOnceContinuesTrace(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	otel.SetTracerProvider(tp)
+	// Extract 需要真实传播器：OTel 默认是 noop，不装则 traceparent 读不回来
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	repo := newSQLiteRepo(t)
+	prod := &fakeProducer{}
+	runner := NewOutboxRunner(repo, prod, nil, true)
+
+	const tid = "4bf92f3577b34da6a3ce929d0e0e4736"
+	seedPointsEvent(t, repo, 501, "00-"+tid+"-00f067aa0ba902b7-01")
+	runner.flushOnce()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 || spans[0].Name != "messaging.outbox.send" {
+		t.Fatalf("expected messaging.outbox.send span, got %+v", spans)
+	}
+	if got := spans[0].SpanContext.TraceID().String(); got != tid {
+		t.Fatalf("send span not continued from outbox traceparent: %s != %s", got, tid)
+	}
+}
+
+// TestFlushOnceNoSpanWhenTraceOff：mq 开关关闭时补发不落 messaging span。
+func TestFlushOnceNoSpanWhenTraceOff(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	repo := newSQLiteRepo(t)
+	runner := NewOutboxRunner(repo, &fakeProducer{}, nil, false)
+	seedPointsEvent(t, repo, 502, "")
+	runner.flushOnce()
+
+	if spans := exporter.GetSpans(); len(spans) != 0 {
+		t.Fatalf("trace off: want no span, got %+v", spans)
 	}
 }
 
