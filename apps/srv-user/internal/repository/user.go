@@ -47,6 +47,22 @@ type Profile struct {
 	Level  int32  `gorm:"column:level"`
 }
 
+// UserProfile user_profiles 表行（注册时随主表同事务写入）。
+//
+// 与 Profile 的区别：Profile 是 JOIN 投影用的零值容器（无表名、无 user_id），
+// 不能用来 Create；这一条是真正可写的表模型，字段与原裸 SQL 的
+// (user_id, avatar, bio, city, level) 五列一一对应。
+type UserProfile struct {
+	UserID uint64 `gorm:"column:user_id"`
+	Avatar string `gorm:"column:avatar"`
+	Bio    string `gorm:"column:bio"`
+	City   string `gorm:"column:city"`
+	Level  int32  `gorm:"column:level"`
+}
+
+// TableName 显式表名
+func (UserProfile) TableName() string { return "user_profiles" }
+
 // Session 登录态会话行（auth_sessions，jti 唯一）
 type Session struct {
 	ID        uint64    `gorm:"primaryKey;column:id"`
@@ -91,10 +107,11 @@ func (r *UserRepository) InsertUser(ctx context.Context, id uint64, username, pa
 			return fmt.Errorf("insert user: %w", err)
 		}
 		id = u.ID
-		if err := tx.Exec(
-			"INSERT INTO user_profiles (user_id, avatar, bio, city, level) VALUES (?, '', '', '', 1)",
-			id,
-		).Error; err != nil {
+		// 走 GORM create 回调（而非 tx.Exec 裸 SQL）：dbx 的 OTel 埋点挂在
+		// create 回调组上，裸 Exec 走 raw 回调组、绕过埋点，这条 INSERT 会
+		// 在 Jaeger 上凭空消失。Avatar/Bio/City 零值即原 SQL 的 ''。
+		prof := UserProfile{UserID: id, Level: 1}
+		if err := tx.Create(&prof).Error; err != nil {
 			return fmt.Errorf("insert profile: %w", err)
 		}
 		return nil
