@@ -9,7 +9,10 @@ import (
 	"testing"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/protocol"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // buildRC 构造最小 hertz RequestContext（方法/路径/Header/Body）供 Forward 测试。
@@ -100,5 +103,67 @@ func TestForwardUpstreamError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "forward to") {
 		t.Fatalf("error message = %q", err)
+	}
+}
+
+// TestForwardInjectsFullW3CHeaders：转发时 traceparent/tracestate/baggage 三个头
+// 必须同时注入下游，且入站旧的 tracestate/baggage 不得漏到下游。
+func TestForwardInjectsFullW3CHeaders(t *testing.T) {
+	previousPropagator := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+	t.Cleanup(func() { otel.SetTextMapPropagator(previousPropagator) })
+
+	traceState, err := trace.ParseTraceState("vendor=new")
+	if err != nil {
+		t.Fatalf("parse tracestate: %v", err)
+	}
+	spanContext := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    trace.TraceID{1},
+		SpanID:     trace.SpanID{2},
+		TraceFlags: trace.FlagsSampled,
+		TraceState: traceState,
+	})
+	ctx := trace.ContextWithSpanContext(context.Background(), spanContext)
+	member, err := baggage.NewMember("tenant", "acme")
+	if err != nil {
+		t.Fatalf("new baggage member: %v", err)
+	}
+	bag, err := baggage.New(member)
+	if err != nil {
+		t.Fatalf("new baggage: %v", err)
+	}
+	ctx = baggage.ContextWithBaggage(ctx, bag)
+
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	f := NewForwarder("127.0.0.1:8500", true)
+	rc := buildRC("POST", "/api/app/orders", map[string]string{
+		"tracestate": "old=vendor",
+		"baggage":    "old=bag",
+	}, `{}`)
+
+	code, _, _, err := f.Forward(ctx, rc, "/api/app", srv.Listener.Addr().String(), "7", "admin")
+	if err != nil {
+		t.Fatalf("forward: %v", err)
+	}
+	if code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	if got.Get("traceparent") == "" {
+		t.Fatal("traceparent not injected")
+	}
+	if got.Get("tracestate") != "vendor=new" {
+		t.Fatalf("tracestate = %q, want %q", got.Get("tracestate"), "vendor=new")
+	}
+	if got.Get("baggage") != "tenant=acme" {
+		t.Fatalf("baggage = %q, want %q", got.Get("baggage"), "tenant=acme")
 	}
 }

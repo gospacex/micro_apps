@@ -12,6 +12,8 @@ import (
 	"strconv"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"hubx/micro_apps/infra/telemetry"
 )
 
 // HeaderRoles 网关透传的用户角色 Header（逗号分隔；pkg/meta 未上提此常量，
@@ -39,6 +41,9 @@ func NewVerifier(secret []byte, issuer string) *Verifier {
 // Verify 验签 + 过期 + issuer + 格式，解出 user_id / roles。
 // 任何失败返回 error（调用方统一 401，不区分细节防枚举）。
 func (v *Verifier) Verify(ctx context.Context, token string) (int64, []string, error) {
+	ctx, span := telemetry.Start(ctx, "middleware", "gateway", "auth")
+	defer span.End()
+
 	if token == "" {
 		return 0, nil, fmt.Errorf("auth: missing bearer token")
 	}

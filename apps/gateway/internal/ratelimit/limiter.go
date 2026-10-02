@@ -18,6 +18,8 @@ import (
 
 	"github.com/gospacex/cachex"
 	"github.com/gospacex/logx"
+
+	"hubx/micro_apps/infra/telemetry"
 )
 
 // Limiter 全局限流器（cache 为 nil 时 Allow 恒 true：门控关闭形态）
@@ -34,6 +36,9 @@ func NewLimiter(cache cachex.Cache, limit int, window time.Duration) *Limiter {
 
 // Allow 判定 (ip, route) 在窗口内是否放行（route 传路由表前缀，不带尾部 /）
 func (l *Limiter) Allow(ctx context.Context, ip, route string) bool {
+	ctx, span := telemetry.Start(ctx, "middleware", "gateway", "ratelimit")
+	defer span.End()
+
 	if l == nil || l.cache == nil || l.limit <= 0 {
 		return true
 	}

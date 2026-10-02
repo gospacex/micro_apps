@@ -49,6 +49,8 @@ var hopByHop = map[string]bool{
 	"accept-encoding": true,
 	"traceparent":     true,
 	"traceresponse":   true,
+	"tracestate":      true, // 由转发器经传播器重新注入，防旧值与新 traceparent 拼出不一致三元组
+	"baggage":         true,
 }
 
 // Forwarder consul 服务发现 + HTTP 转发
@@ -126,11 +128,9 @@ func (f *Forwarder) Forward(ctx context.Context, rc *app.RequestContext, routePr
 	}
 	// 灰度头：入站已有则 copyInbound 已带；无则不下发（由上游按自身策略定）
 	if f.traceOn {
-		carrier := propagation.MapCarrier{}
-		otel.GetTextMapPropagator().Inject(ctx, carrier)
-		if tp := carrier.Get("traceparent"); tp != "" {
-			outReq.Header.Set("traceparent", tp)
-		}
+		// 整体注入 traceparent/tracestate/baggage（Composite 传播器的完整字段集），
+		// 替代原先只手写 traceparent 的单头注入。
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(outReq.Header))
 	}
 
 	resp, err := f.httpClient.Do(outReq)
