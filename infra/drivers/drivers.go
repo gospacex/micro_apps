@@ -154,6 +154,36 @@ func NewConsumer(ctx context.Context, h configx.Config, name, group string, trac
 	return c, nil
 }
 
+// NewConsumerWithTopic 同 NewConsumer，但显式覆盖订阅 topic。
+//
+// 存在的理由：mqx 的 ConsumerConfig 只有单个 Topic 字段（配置里的
+// consumer.topics 数组官方只取第一个），多 topic 订阅只能靠「一个 topic
+// 一个 consumer」。job 的 retry 子命令要消费 `*.dlq`，而这些 topic 绝不能
+// 写进配置的 consumer.topics —— 否则 consume 子命令会连死信一起消费，
+// 业务消息与死信混在一条循环里，重放语义立刻失控。
+func NewConsumerWithTopic(ctx context.Context, h configx.Config, name, group, topic string, traceOn bool) (mqx.Consumer, error) {
+	if h == nil {
+		return nil, fmt.Errorf("drivers: consumer requires configx handle")
+	}
+	if topic == "" {
+		return nil, fmt.Errorf("drivers: consumer topic required (instance=%s)", orDefault(name))
+	}
+	cfg := mqx.ReadConfigFromConfigx(h, name)
+	if cfg.Driver == "" {
+		cfg.Driver = "kafka"
+	}
+	if group != "" {
+		cfg.Consumer.GroupID = group
+	}
+	cfg.Consumer.Topic = topic
+	applyTrace(cfg, traceOn)
+	c, err := mqx.NewConsumer(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("drivers: new consumer (instance=%s, topic=%s): %w", orDefault(name), topic, err)
+	}
+	return c, nil
+}
+
 // applyTrace 调用链开关透传（本包不读 trace 配置）
 func applyTrace(cfg *mqx.Config, on bool) {
 	cfg.CallChainEnabled = on
