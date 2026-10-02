@@ -60,6 +60,14 @@ func TestBuildServerOptionsTraceToggle(t *testing.T) {
 
 // TestBuildClientOptionsTraceToggle 同服务端：固定 Target/ConnType 使 suite 是唯一
 // 变量。无 Target 时不应产出 WithHostPorts（退化到 DestService 默认解析）。
+//
+// 开启时比关闭时**多两个** option：ClientSpanMiddleware + suite。
+//
+// 前者不是装饰：obs-opentelemetry 套件自带的 client span 由 kitex 的
+// stats.Tracer 收尾，实测从不落地——下游能收到正确的 traceparent（同
+// trace_id），父 span id 却指向一个从不存在的 span，Jaeger 上表现为两棵
+// 子树。client span 因此改由本包显式产出（见 middleware.go 的包注释），
+// 这条回归必须钉在这里。
 func TestBuildClientOptionsTraceToggle(t *testing.T) {
 	base := ClientOptions{ServiceName: "caller", Target: "a:1,b:2"}
 	off := BuildClientOptions(base) // 2 基础 + 1 hostports
@@ -68,11 +76,19 @@ func TestBuildClientOptionsTraceToggle(t *testing.T) {
 	if len(off) != 3 {
 		t.Errorf("disabled client opts len = %d, want 3", len(off))
 	}
-	if len(on) != 4 {
-		t.Errorf("enabled client opts len = %d, want 4", len(on))
+	if len(on) != 5 {
+		t.Errorf("enabled client opts len = %d, want 5 (2 base + hostports + suite + stats level)", len(on))
 	}
-	if len(on) != len(off)+1 {
-		t.Errorf("enabled should add exactly one suite option: on=%d off=%d", len(on), len(off))
+	if len(on) != len(off)+2 {
+		t.Errorf("enabled should add exactly two options (suite + stats level): on=%d off=%d", len(on), len(off))
+	}
+}
+
+// TestBuildClientOptionsStatsLevelOff 开关关闭时不得引入任何 stats/链路开销。
+func TestBuildClientOptionsStatsLevelOff(t *testing.T) {
+	off := BuildClientOptions(ClientOptions{ServiceName: "c", Target: "a:1", ConnType: "short"})
+	if len(off) != 4 { // 2 基础 + hostports + short connection
+		t.Errorf("disabled short-conn opts len = %d, want 4", len(off))
 	}
 }
 

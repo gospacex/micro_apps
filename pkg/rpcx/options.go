@@ -116,8 +116,13 @@ func BuildClientOptions(o ClientOptions) []client.Option {
 		client.WithRPCTimeout(rpcTimeout),
 		client.WithConnectTimeout(connTimeout),
 	}
+	// 顺序有讲究：suite 必须先注册，本包的 ClientSpanMiddleware 后注册。
+	// kitex 的 endpoint chain 里「先注册的在内层、后执行」，而 suite 自带的
+	// ClientMiddleware 负责把 ctx 里的 span 注入给下游——只有本包的 span
+	// 先建好，被注入的才是它。
 	if o.TraceEnabled {
 		opts = append(opts, client.WithSuite(kitextracing.NewClientSuite()))
+		opts = append(opts, client.WithMiddleware(ClientSpanMiddleware()))
 	}
 	if addrs := splitTarget(o.Target); len(addrs) > 0 {
 		opts = append(opts, client.WithHostPorts(addrs...))

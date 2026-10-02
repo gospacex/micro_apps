@@ -154,6 +154,16 @@ func Init(ctx context.Context, opts Options) (*Setup, error) {
 		return &Setup{Enabled: false, Tracer: tr, shutdown: noopShutdown}, nil
 	}
 
+	// 【红线】全局 TracerProvider 必须由本装配层显式指向真实 provider。
+	//
+	// kitex 的 obs-opentelemetry 套件、pkg/rpcx 的 client span 中间件等第三方
+	// /公共组件一律从 otel.GetTracerProvider() 取 tracer，而不是拿本函数返回
+	// 的 Setup.Tracer。全局若停留在默认 noop（或指向某个不带导出器的
+	// provider），这些 span 会「建得出来、传得下去，但永远不落地」——下游
+	// 同 trace_id、父 span id 却指向不存在的 span，是最难查的一类断链。
+	// 这里显式安装，不依赖 otelx 的内部行为。
+	otel.SetTracerProvider(p.TracerProvider())
+
 	// provider.Close 签名是 func() error（otelx 内部固定 5s 超时），
 	// 这里包一层转成 Setup.shutdown 的形态；入参 ctx 只用于提前判定已取消。
 	tr := p.TracerProvider().Tracer(name)
