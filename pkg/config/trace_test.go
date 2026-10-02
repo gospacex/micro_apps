@@ -170,3 +170,66 @@ func TestResolveNilSwitches(t *testing.T) {
 		t.Fatal("nil 句柄应保持原值")
 	}
 }
+
+// fakeTraceSource 内存实现 TraceSource。
+type fakeTraceSource struct {
+	set   map[string]bool
+	bools map[string]bool
+	raw   map[string]Trace
+}
+
+func (f *fakeTraceSource) IsSet(key string) bool   { return f.set[key] }
+func (f *fakeTraceSource) GetBool(key string) bool { return f.bools[key] }
+func (f *fakeTraceSource) Unmarshal(key string, v any) error {
+	*(v.(*Trace)) = f.raw[key]
+	return nil
+}
+
+func TestApplyTracePrimaryWins(t *testing.T) {
+	c := Default()
+	primary := &fakeTraceSource{
+		set: map[string]bool{"trace": true, "trace.db": true},
+		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "otlp", Endpoint: "127.0.0.1:4318", DB: false, Cache: true, MQ: true}},
+	}
+	fallback := &fakeTraceSource{
+		set: map[string]bool{"trace": true},
+		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "stdout", Endpoint: "", DB: true, Cache: true, MQ: true}},
+	}
+	c.ApplyTrace(primary, fallback, "bff-app")
+	if c.Trace.DB {
+		t.Fatal("hubx.trace trace.db=false must win over fallback")
+	}
+	if c.Trace.Exporter != "otlp" {
+		t.Fatal("trace section must come from primary (hubx.trace)")
+	}
+}
+
+func TestApplyTraceFallbackWhenPrimaryAbsent(t *testing.T) {
+	c := Default()
+	primary := &fakeTraceSource{set: map[string]bool{}} // 无 trace 段
+	fallback := &fakeTraceSource{
+		set: map[string]bool{"trace": true},
+		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "stdout", Endpoint: "", DB: true, Cache: true, MQ: true}},
+	}
+	c.ApplyTrace(primary, fallback, "bff-app")
+	if c.Trace.Exporter != "stdout" {
+		t.Fatal("fallback local trace section must apply when hubx.trace absent")
+	}
+}
+
+func TestApplyTraceOfficialSegmentFallback(t *testing.T) {
+	c := Default()
+	primary := &fakeTraceSource{set: map[string]bool{}} // 无 trace 段
+	fallback := &fakeTraceSource{
+		set: map[string]bool{
+			"trace":                 true,
+			SQLXTraceKey("bff-app"): true,
+		}, // trace 段无 db 键 → 回退官方段
+		bools: map[string]bool{SQLXTraceKey("bff-app"): false},
+		raw:   map[string]Trace{"trace": {Enabled: true, Exporter: "otlp", Endpoint: "127.0.0.1:4318", DB: true, Cache: true, MQ: true}},
+	}
+	c.ApplyTrace(primary, fallback, "bff-app")
+	if c.Trace.DB {
+		t.Fatal("official segment enable_trace=false must fall through when trace.db unset")
+	}
+}

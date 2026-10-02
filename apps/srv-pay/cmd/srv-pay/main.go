@@ -4,10 +4,9 @@
 //  1. infra/nacos.Load(ctx, "config.yaml", "hubx.srv-pay", "HUBX")：
 //     本地 config.yaml 兜底 + 远程 Nacos key 级裁决（dataID 空则纯本地）。
 //     读出 pkg/config 各段（trace 总闸 + 三段细分开关，经 Resolve 裁决官方段）。
-//  2. rpcx/configx.InitGlobal（⚠ InitGlobal 而非 Load/MustLoad——rpcx/tracing.Init
-//     读全局 viper 的 log.enable_trace，只有 InitGlobal 存全局句柄）+
-//     infra/telemetry.Init：全局 TracerProvider + Composite(TraceContext,Baggage)
-//     传播器就绪。【红线】必须先于第 3 步：dbx 的 OTel 回调从全局
+//  2. infra/telemetry.Init：经 hubx/otelx 装配全局 TracerProvider，并安装
+//     Composite(TraceContext, Baggage) 传播器、把开关接入 hubx/traceflag。
+//     【红线】必须先于第 3 步：dbx / cachex / mqx 的 OTel 回调从全局
 //     TracerProvider 取 tracer，晚装配会拿到 noop tracer。
 //  3. infra/drivers：dbx 经 dbxconfig.LoadDBConfigFromConfigx("mysql","srv-pay")
 //     打开 GORM（Trace.On("db") 门控 Open/OpenNoTrace）；本服务不生产/消费
@@ -18,6 +17,11 @@
 //  6. signal 优雅退出（反序）：svr.Stop → consul.Deregister →
 //     tracing Shutdown（OTLP BatchSpanProcessor 批量 flush 默认 5s，退出
 //     超时必须 ≥10s，已知坑：flush 未完成会丢 span）→ db close。
+//
+// 【退出顺序红线】任何会标 span 的资源（db / cache / producer）都必须在
+// tracing.Shutdown **之前**关闭：否则它们关闭动作产生的那批 span 还躺在
+// BatchSpanProcessor 的缓冲里就被 flush 丢弃，链路末端永远缺一小段。
+// 因此这些资源刻意不用 defer（defer 等到手动 flush 之后才执行）。
 package main
 
 import (
@@ -36,9 +40,6 @@ import (
 	_ "github.com/gospacex/logx/zap" // 注册 logx zap provider（必须空导入）
 	"gorm.io/gorm"
 
-	rpcxconfigx "github.com/kitexx/kitex-framework/configx"
-	"github.com/kitexx/kitex-framework/rpcx"
-
 	"hubx/micro_apps/apps/srv-pay/internal/repository"
 	srvpo "hubx/micro_apps/apps/srv-pay/internal/rpc"
 	"hubx/micro_apps/apps/srv-pay/internal/service"
@@ -46,6 +47,7 @@ import (
 	"hubx/micro_apps/infra/nacos"
 	"hubx/micro_apps/infra/telemetry"
 	pbconfig "hubx/micro_apps/pkg/config"
+	"hubx/micro_apps/pkg/rpcx"
 
 	payrpc "hubx/micro_apps/pkg/kitex_gen/pay/pay"
 )
@@ -56,9 +58,6 @@ const (
 	listenAddr  = "127.0.0.1:9014"
 	consulAgent = "127.0.0.1:8500"
 	configPath  = "config.yaml" // 与 configs/services/srv-pay.yaml 逐字同构（服务自包含）
-
-	// jaegerEndpoint docker compose 的 jaeger（OTLP gRPC 4317），服务跑在宿主侧
-	jaegerEndpoint = "127.0.0.1:4317"
 )
 
 // expandDB 包装 dbxconfig.DBConfig：DSN 里的 ${HUBX_DB_PW} 占位经
@@ -71,45 +70,53 @@ func (e expandDB) DriverName() string { return e.base.DriverName() }
 
 func (e expandDB) DSN() string { return os.ExpandEnv(e.base.DSN()) }
 
+// main 只负责把 run 的失败转成进程退出码。
+//
+// 刻意不让装配过程直接 log.Fatalf：os.Exit(1) 会**跳过所有 defer**，
+// 已经打开的 configx 句柄（内含 Nacos 长轮询 goroutine）与 logger 都不会
+// 被收尾。真正的资源释放都挂 defer，因此失败必须走 return 让它们执行。
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("srv-pay: %v", err)
+	}
+}
+
+func run() error {
 	// ---------- 1) 配置：本地 config.yaml 兜底 + Nacos（dataID hubx.srv-pay） ----------
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, err := nacos.Load(ctx, configPath, "hubx.srv-pay", "HUBX")
+	h, ht, err := nacos.LoadUnified(ctx, configPath, "hubx.srv-pay", "HUBX")
 	if err != nil {
-		log.Fatalf("srv-pay: load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 	defer func() { _ = h.Close() }()
+	if ht != nil {
+		defer func() { _ = ht.Close() }()
+	}
 
+	// 统一 trace 段：hubx.trace（单一事实源）优先，缺省回退本地/默认；
+	// 细分开关三段正交由 ApplyTrace 内 Resolve 完成（唯一开关入口 Trace.On）。
 	pcfg := pbconfig.Default()
-	if h.IsSet("trace") {
-		if err := h.Unmarshal("trace", &pcfg.Trace); err != nil {
-			log.Fatalf("srv-pay: unmarshal trace section: %v", err)
-		}
-	}
-	pcfg.Trace.Resolve(h, serviceName)
+	pcfg.ApplyTrace(ht, h, serviceName)
 
-	// ---------- 2) rpcx 全局配置 + 调用链（必须先于 3） ----------
-	var logSection struct{}
-	if err := rpcxconfigx.InitGlobal(&logSection, rpcxconfigx.WithPath(configPath)); err != nil {
-		log.Printf("srv-pay: rpcx configx init fallback to builtin defaults: %v", err)
-	}
-
+	// ---------- 2) 调用链（必须先于 3） ----------
 	traceSetup, err := telemetry.Init(ctx, telemetry.Options{
 		ServiceName: serviceName,
-		Endpoint:    jaegerEndpoint,
+		Endpoint:    pcfg.Trace.Endpoint,
 		Insecure:    true,
 		Enabled:     pcfg.Trace.Enabled,
+		SampleRatio: pcfg.Trace.SampleRatio,
+		Exporter:    pcfg.Trace.Exporter,
 	})
 	if err != nil {
-		log.Fatalf("srv-pay: init telemetry: %v", err)
+		return fmt.Errorf("init telemetry: %w", err)
 	}
 
 	// 日志：logx 框架默认日志（OTel 打开时自动携带 trace_id/span_id）
 	logger, err := logx.New(logx.Config{Level: "info", ServiceName: serviceName})
 	if err != nil {
-		log.Fatalf("srv-pay: init logger: %v", err)
+		return fmt.Errorf("init logger: %w", err)
 	}
 	logx.SetGlobal(logger)
 	defer func() { _ = logger.Close() }()
@@ -117,13 +124,8 @@ func main() {
 	// ---------- 3) 中间件驱动：db（On("db") 门控；本服务无 cache/mq 段） ----------
 	db, err := openDB(h, pcfg, logger)
 	if err != nil {
-		log.Fatalf("srv-pay: open db: %v", err)
+		return fmt.Errorf("open db: %w", err)
 	}
-	defer func() {
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-	}()
 	if sqlDB, derr := db.DB(); derr == nil {
 		if perr := sqlDB.PingContext(ctx); perr != nil {
 			// 数据库不可用不阻断启动（dev 演示形态：回调流水落库失败仅告警）
@@ -146,8 +148,9 @@ func main() {
 	// ---------- 5) rpcx 服务端 ----------
 	impl := &srvpo.Server{Svc: svc}
 	svr := payrpc.NewServer(impl, rpcx.BuildServerOptions(rpcx.ServerOptions{
-		ServiceName: serviceName,
-		Addr:        listenAddr,
+		ServiceName:  serviceName,
+		Addr:         listenAddr,
+		TraceEnabled: pcfg.Trace.Enabled,
 	})...)
 
 	srvErr := make(chan error, 1)
@@ -168,6 +171,11 @@ func main() {
 		}
 	}
 	_ = svr.Stop()
+	if sqlDB, derr := db.DB(); derr == nil {
+		if derr := sqlDB.Close(); derr != nil {
+			logger.Error("db close failed", logx.Err(derr))
+		}
+	}
 	if registered {
 		if derr := consul.Deregister(consulAgent, serviceName, listenAddr); derr != nil {
 			logger.Warn("consul deregister failed", logx.Err(derr))
@@ -180,6 +188,7 @@ func main() {
 		logger.Error("tracing shutdown failed", logx.Err(serr))
 	}
 	flushCancel()
+	return nil
 }
 
 // openDB 经 dbx 官方 configx 入口打开 GORM（xmiddleware.sqlx.databases.srv-pay）

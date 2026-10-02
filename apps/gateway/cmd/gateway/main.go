@@ -7,10 +7,9 @@
 //     Nacos 地址 env HUBX_NACOS_SERVER 覆盖，缺省 127.0.0.1:8848）。
 //     读出 pkg/config 各段（trace 总闸 + 三段细分开关，经 Resolve 裁决官方段）
 //     与 gateway 私有段（jwt / routes / rate_limit，routing.Load 统一读）。
-//  2. rpcx/configx.InitGlobal（同模板——telemetry.Init 的 rpcx/tracing.Init
-//     读全局 viper 的 log.enable_trace，只有 InitGlobal 存全局句柄）+
-//     infra/telemetry.Init：全局 TracerProvider + Composite(TraceContext,
-//     Baggage) 传播器就绪。【红线】必须先于第 3 步：cachex 的 OTel 回调
+//  2. infra/telemetry.Init（内部 otelx.New(*otelx.Config) + traceflag 总闸 +
+//     Composite(TraceContext,Baggage) 传播器就绪）。【红线】必须先于第 3 步：
+//     cachex 的 OTel 回调
 //     从全局 TracerProvider 取 tracer，晚装配会拿到 noop tracer。
 //     网关是整条 trace 的根：proxy.Forward 里 telemetry.Start(ctx,
 //     "handler", "gateway", "Proxy:"+prefix) 诞生根 span，traceparent 经
@@ -20,14 +19,19 @@
 //  4. infra/consul.Register("127.0.0.1:8500","gateway","127.0.0.1:8080")；
 //     目标地址经 consul.Resolve(serviceID) 读 KV 转发（HTTP→BFF HTTP 端口）。
 //  5. webx.New（/healthz 探针 + catch-all 转发 handler，proxy.Register）。
-//  6. signal 优雅退出（反序）：app.Shutdown → cache close →
-//     consul.Deregister → tracing Shutdown（OTLP BatchSpanProcessor 批量
-//     flush 默认 5s，退出超时必须 ≥10s，已知坑：flush 未完成会丢 span）
-//     → logger close。
+//  6. signal 优雅退出（反序）：app.Shutdown → consul.Deregister →
+//     cache close → tracing Shutdown（OTLP BatchSpanProcessor 批量 flush，
+//     退出超时必须 ≥10s，已知坑：flush 未完成会丢 span）→ logger close。
+//
+// 【退出顺序红线】任何会标 span 的资源（cache / db / producer）都必须在
+// tracing.Shutdown **之前**关闭：否则它们关闭动作产生的那批 span 还躺在
+// BatchSpanProcessor 的缓冲里就被 flush 丢弃，链路末端永远缺一小段。
+// 因此这些资源刻意不用 defer（defer 在手动 flush 之后才执行）。
 package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -37,8 +41,6 @@ import (
 	"github.com/gospacex/logx"
 	_ "github.com/gospacex/logx/zap" // 注册 logx zap provider（必须空导入）
 	"github.com/gospacex/webx"
-
-	rpcxconfigx "github.com/kitexx/kitex-framework/configx"
 
 	"hubx/micro_apps/apps/gateway/internal/auth"
 	"hubx/micro_apps/apps/gateway/internal/proxy"
@@ -57,78 +59,85 @@ const (
 	listenAddr  = "127.0.0.1:8080"
 	consulAgent = "127.0.0.1:8500"
 	configPath  = "config.yaml" // 与 configs/services/gateway.yaml 逐字同构（服务自包含）
-
-	// jaegerEndpoint docker compose 的 jaeger（OTLP gRPC 4317），服务跑在宿主侧
-	jaegerEndpoint = "127.0.0.1:4317"
 )
 
+// main 只负责把 run 的失败转成进程退出码。
+//
+// 刻意不让装配过程直接 log.Fatalf：os.Exit(1) 会**跳过所有 defer**，
+// 已经打开的 configx 句柄（内含 Nacos 长轮询 goroutine）与 logger 都不会
+// 被收尾。真正的资源释放都挂 defer，因此失败必须走 return 让它们执行。
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("gateway: %v", err)
+	}
+}
+
+func run() error {
 	// ---------- 1) 配置：本地 config.yaml 兜底 + Nacos（dataId hubx.gateway） ----------
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, err := nacos.Load(ctx, configPath, "hubx.gateway", "HUBX")
+	h, ht, err := nacos.LoadUnified(ctx, configPath, "hubx.gateway", "HUBX")
 	if err != nil {
-		log.Fatalf("gateway: load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 	defer func() { _ = h.Close() }()
-
-	// pkg/config 段：先 Default() 打底（总闸/三段均开，exporter otlp），
-	// 再 Unmarshal 本地显式 trace 段覆盖，最后 Resolve 裁决官方段
-	// （xmiddleware.cachex.instances.gateway.enable_trace，仅当 trace 键未显式写出）
-	pcfg := pbconfig.Default()
-	if h.IsSet("trace") {
-		if err := h.Unmarshal("trace", &pcfg.Trace); err != nil {
-			log.Fatalf("gateway: unmarshal trace section: %v", err)
-		}
+	if ht != nil {
+		defer func() { _ = ht.Close() }()
 	}
-	pcfg.Trace.Resolve(h, serviceName)
+
+	// 统一 trace 段：hubx.trace（单一事实源）优先，缺省回退本地/默认；
+	// 细分开关三段正交由 ApplyTrace 内 Resolve 完成（唯一开关入口 Trace.On）。
+	pcfg := pbconfig.Default()
+	pcfg.ApplyTrace(ht, h, serviceName)
 
 	// gateway 私有段：路由表 + jwt + 全局限流参数（配置驱动，不硬编码）
 	gw, table, err := routing.Load(h)
 	if err != nil {
-		log.Fatalf("gateway: load routes: %v", err)
+		return fmt.Errorf("load routes: %w", err)
 	}
 
-	// ---------- 2) rpcx 全局配置 + 调用链（必须先于 3） ----------
-	// 同模板 InitGlobal：telemetry.Init 的 rpcx/tracing.Init 读全局 viper
-	var logSection struct{}
-	if err := rpcxconfigx.InitGlobal(&logSection, rpcxconfigx.WithPath(configPath)); err != nil {
-		log.Printf("gateway: rpcx configx init fallback to builtin defaults: %v", err)
-	}
-
+	// ---------- 2) 调用链（必须先于 3） ----------
+	// infra/telemetry.Init 装配全局 TracerProvider + Composite(TraceContext,
+	// Baggage) 传播器，并把开关接入 hubx/traceflag。
 	traceSetup, err := telemetry.Init(ctx, telemetry.Options{
 		ServiceName: serviceName,
-		Endpoint:    jaegerEndpoint,
+		Endpoint:    pcfg.Trace.Endpoint,
 		Insecure:    true,
 		Enabled:     pcfg.Trace.Enabled,
+		SampleRatio: pcfg.Trace.SampleRatio,
+		Exporter:    pcfg.Trace.Exporter,
 	})
 	if err != nil {
-		log.Fatalf("gateway: init telemetry: %v", err)
+		return fmt.Errorf("init telemetry: %w", err)
 	}
 
 	// 日志：logx 框架默认日志（OTel 打开时自动携带 trace_id/span_id）
 	logger, err := logx.New(logx.Config{Level: "info", ServiceName: serviceName})
 	if err != nil {
-		log.Fatalf("gateway: init logger: %v", err)
+		return fmt.Errorf("init logger: %w", err)
 	}
 	logx.SetGlobal(logger) // 未显式注入的组件（cachex 内部）统一用这个
 	defer func() { _ = logger.Close() }()
 
-	// ---------- 3) 中间件驱动：gateway 无 DB，只装缓存（On("cache") 门控） ----------
-	var cache *drivers.Cache
-	var limiter *ratelimit.Limiter
-	if pcfg.Trace.On("cache") {
-		if cache, err = drivers.NewCache(ctx, h, serviceName, "", true); err != nil {
-			// 缓存不可用降级：限流器 nil（fail-open），网关继续服务
-			logger.Warn("cache open failed (rate-limit disabled)", logx.Err(err))
-			cache = nil
-		}
+	// ---------- 3) 中间件驱动：gateway 无 DB，只装缓存 ----------
+	// 【红线】Trace.On("cache") 的语义是"缓存操作是否入链"，不是"要不要建缓存"：
+	// 缓存同时承载网关的限流计数，当初把它当作构造开关时，关掉 cache 的追踪
+	// 会让 limiter 一并变成 nil，网关在毫无告警的情况下失去限流防护。
+	// 正确做法是组件照常构造，开关只透传给 drivers 决定是否注册 OTel 回调。
+	cache, err := drivers.NewCache(ctx, h, serviceName, "", pcfg.Trace.On("cache"))
+	if err != nil {
+		// 缓存不可用降级：限流器 nil（fail-open），网关继续服务
+		logger.Warn("cache open failed (rate-limit disabled)", logx.Err(err))
+		cache = nil
 	}
+
+	// 限流器只在「配了限流额度」且「缓存真的起来了」时挂；
+	// 不再受 trace 开关影响 —— 是否限流是可用性问题，不是观测问题。
+	var limiter *ratelimit.Limiter
 	if gw.RateLimit.Limit > 0 && cache != nil {
 		limiter = ratelimit.NewLimiter(cache.Instance(serviceName), gw.RateLimit.Limit, gw.RateLimit.WindowDuration())
 	}
-	defer func() { _ = cache.Close() }() // nil 安全（Cache.Close 已判空）
 
 	// 业务装配：验签器（密钥经 gateway.jwt 段，env 优先）+ 转发器
 	// （traceOn 总闸关时不注入 traceparent，退化为裸转发）
@@ -170,7 +179,7 @@ func main() {
 		webx.WithPreRun(func(a *webx.App) { proxy.Register(a.Engine, deps) }),
 	)
 	if err != nil {
-		log.Fatalf("gateway: webx.New: %v", err)
+		return fmt.Errorf("webx.New: %w", err)
 	}
 
 	srvErr := make(chan error, 1)
@@ -205,6 +214,13 @@ func main() {
 			logger.Warn("consul deregister failed", logx.Err(derr))
 		}
 	}
+	// 先关会标 span 的资源，再 flush：见文件头的「退出顺序红线」。
+	// 顺序错的话，cache.Close 那一批 span 会在 Buffer 里被 flush 漏掉。
+	if cache != nil {
+		if cerr := cache.Close(); cerr != nil {
+			logger.Error("cache close failed", logx.Err(cerr))
+		}
+	}
 	// OTel flush 超时必须 ≥10s（BatchSpanProcessor 批量 5s，
 	// 已知坑：flush 未完成即退出会丢 span）
 	flushCtx, flushCancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -212,4 +228,7 @@ func main() {
 		logger.Error("tracing shutdown failed", logx.Err(serr))
 	}
 	flushCancel()
+	// 日志由 defer 关闭：上面的每一步错误都要能在 logger 关闭前落盘，
+	// 重复显式 Close 反而可能触发 provider 的双释放。
+	return nil
 }

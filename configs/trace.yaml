@@ -8,15 +8,18 @@
 #   业务/装配代码只准经 cfg.Trace.On(kind) 读开关，禁止直读 bool
 #
 # endpoint 写宿主侧值：11 个服务不进 compose，用 go run 跑在宿主上，
-# 必须经宿主映射端口 4317 到达 jaeger（规格里 jaeger:4317 是 compose
+# 必须经宿主映射端口 4318 到达 jaeger（规格里 jaeger:4318 是 compose
 # 网络内的名字，宿主侧不可解析——端口裁决见
 # docs/superpowers/plans/local-docker-env.md）。
+#
+# 走 4318 而非 4317：hubx/otelx 的 OTLP 导出器是 HTTP 通道（otelx 已明确
+# 不再支持停更的 Jaeger 原生 exporter），Jaeger 1.35+ 的 4318 端口原生收 OTLP。
 # ============================================================
 
 trace:
   enabled: true      # 总闸：关则 11 服务 0 span（含分层 span）
   exporter: otlp     # otlp / stdout
-  endpoint: 127.0.0.1:4317
+  endpoint: 127.0.0.1:4318
   db: true           # SQL span（单表 CRUD / 事务 / JOIN）
   cache: true        # 缓存命令 span
   mq: true           # messaging span + Kafka traceparent 头写入

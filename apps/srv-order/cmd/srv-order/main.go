@@ -17,9 +17,15 @@
 //     跨调 srv-product 经 consul.Target 解析地址 + rpcx.BuildClientOptions。
 //  5. order.NewServer(impl, rpcx.BuildServerOptions(rpcx.ServerOptions{
 //     ServiceName:"srv-order", Addr:":9013"})...)。
-//  6. signal 优雅退出（反序）：svr.Stop → outbox.Stop → producer/cache close →
-//     consul.Deregister → tracing Shutdown（OTLP BatchSpanProcessor 批量 flush
-//     默认 5s，退出超时必须 ≥10s，已知坑：flush 未完成会丢 span）→ db close。
+//  6. signal 优雅退出（反序）：svr.Stop → outbox.Stop → producer/cache/db
+//     close → consul.Deregister → tracing Shutdown（OTLP BatchSpanProcessor
+//     批量 flush 默认 5s，退出超时必须 ≥10s，已知坑：flush 未完成会丢 span）
+//     → logger close。
+//
+// 【退出顺序红线】任何会标 span 的资源都必须在 tracing.Shutdown **之前**关闭：
+// 否则它们关闭动作产生的那批 span 还躺在 BatchSpanProcessor 缓冲里，flush 一走
+// 就永久丢失，链路末端永远缺一小段。因此这些资源刻意不用 defer —— defer 在
+// 手动 flush 之后才执行。
 package main
 
 import (
@@ -36,11 +42,7 @@ import (
 	dbxorm "github.com/gospacex/dbx/orm"
 	"github.com/gospacex/logx"
 	_ "github.com/gospacex/logx/zap" // 注册 logx zap provider（必须空导入）
-	"github.com/gospacex/mqx"
 	"gorm.io/gorm"
-
-	rpcxconfigx "github.com/kitexx/kitex-framework/configx"
-	"github.com/kitexx/kitex-framework/rpcx"
 
 	"hubx/micro_apps/apps/srv-order/internal/middleware"
 	"hubx/micro_apps/apps/srv-order/internal/repository"
@@ -51,6 +53,7 @@ import (
 	"hubx/micro_apps/infra/nacos"
 	"hubx/micro_apps/infra/telemetry"
 	pbconfig "hubx/micro_apps/pkg/config"
+	"hubx/micro_apps/pkg/rpcx"
 
 	orderrpc "hubx/micro_apps/pkg/kitex_gen/order/order"
 	productpb "hubx/micro_apps/pkg/kitex_gen/product"
@@ -63,9 +66,6 @@ const (
 	listenAddr  = "127.0.0.1:9013"
 	consulAgent = "127.0.0.1:8500"
 	configPath  = "config.yaml" // 与 configs/services/srv-order.yaml 逐字同构（服务自包含）
-
-	// jaegerEndpoint docker compose 的 jaeger（OTLP gRPC 4317），服务跑在宿主侧
-	jaegerEndpoint = "127.0.0.1:4317"
 
 	// 自保护参数（brief §srv-order 限流）：固定窗口 limit/window
 	rateLimitPerMinute = 100
@@ -95,64 +95,66 @@ func (a *productAdapter) ReserveStock(ctx context.Context, req *productpb.Reserv
 	return a.cli.ReserveStock(ctx, req)
 }
 
+// main 只负责把 run 的失败转成进程退出码。
+//
+// 刻意不让装配过程直接 log.Fatalf：os.Exit(1) 会**跳过所有 defer**，
+// 已经打开的 configx 句柄（内含 Nacos 长轮询 goroutine）与 logger 都不会
+// 被收尾。真正的资源释放都挂 defer，因此失败必须走 return 让它们执行。
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("srv-order: %v", err)
+	}
+}
+
+func run() error {
 	// ---------- 1) 配置：本地 config.yaml 兜底 + Nacos（dataID hubx.srv-order） ----------
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, err := nacos.Load(ctx, configPath, "hubx.srv-order", "HUBX")
+	h, ht, err := nacos.LoadUnified(ctx, configPath, "hubx.srv-order", "HUBX")
 	if err != nil {
-		log.Fatalf("srv-order: load config: %v", err)
+		return fmt.Errorf("load config: %w", err)
 	}
 	defer func() { _ = h.Close() }()
+	if ht != nil {
+		defer func() { _ = ht.Close() }()
+	}
 
-	// pkg/config 段：先 Default() 打底（总闸/三段均开，exporter otlp），
-	// 再 Unmarshal 本地显式 trace 段覆盖，最后 Resolve 裁决官方段
-	// （xmiddleware.*.enable_trace / call_chain_enabled，仅当 trace 键未显式写出）
+	// 统一 trace 段：hubx.trace（单一事实源）优先，缺省回退本地/默认；
+	// 细分开关三段正交由 ApplyTrace 内 Resolve 完成（唯一开关入口 Trace.On）。
 	pcfg := pbconfig.Default()
-	if h.IsSet("trace") {
-		if err := h.Unmarshal("trace", &pcfg.Trace); err != nil {
-			log.Fatalf("srv-order: unmarshal trace section: %v", err)
-		}
-	}
-	pcfg.Trace.Resolve(h, serviceName)
+	pcfg.ApplyTrace(ht, h, serviceName)
 
-	// ---------- 2) rpcx 全局配置 + 调用链（必须先于 3） ----------
-	// InitGlobal 把 config.yaml（本服务无 log 段则回退内置默认）存入全局 viper，
-	// rpcx/tracing.Init 经 log.enable_trace 裁决是否挂 obs-opentelemetry suite
-	var logSection struct{}
-	if err := rpcxconfigx.InitGlobal(&logSection, rpcxconfigx.WithPath(configPath)); err != nil {
-		log.Printf("srv-order: rpcx configx init fallback to builtin defaults: %v", err)
-	}
-
+	// ---------- 2) 调用链（必须先于 3） ----------
+	// infra/telemetry.Init 装配全局 TracerProvider + Composite(TraceContext,
+	// Baggage) 传播器。【红线】必须先于第 3 步：dbx / cachex / mqx 从全局取 tracer。
 	traceSetup, err := telemetry.Init(ctx, telemetry.Options{
 		ServiceName: serviceName,
-		Endpoint:    jaegerEndpoint,
+		Endpoint:    pcfg.Trace.Endpoint,
 		Insecure:    true,
 		Enabled:     pcfg.Trace.Enabled,
+		SampleRatio: pcfg.Trace.SampleRatio,
+		Exporter:    pcfg.Trace.Exporter,
 	})
 	if err != nil {
-		log.Fatalf("srv-order: init telemetry: %v", err)
+		return fmt.Errorf("init telemetry: %w", err)
 	}
 
 	// 日志：logx 框架默认日志（OTel 打开时自动携带 trace_id/span_id）
 	logger, err := logx.New(logx.Config{Level: "info", ServiceName: serviceName})
 	if err != nil {
-		log.Fatalf("srv-order: init logger: %v", err)
+		return fmt.Errorf("init logger: %w", err)
 	}
 	logx.SetGlobal(logger) // 未显式注入的组件（dbx/cachex/mqx 内部）统一用这个
 	defer func() { _ = logger.Close() }()
 
-	// ---------- 3) 中间件驱动：db / cache / mq（On(kind) 门控） ----------
+	// ---------- 3) 中间件驱动：db / cache / mq ----------
+	// db 不走 defer 关闭：见文件头「退出顺序红线」，连接关闭动作本身会标 span，
+	// 而 defer 要等到手动 tracing flush 之后才执行，那时 flush 早已错峰过去。
 	db, err := openDB(h, pcfg, logger)
 	if err != nil {
-		log.Fatalf("srv-order: open db: %v", err)
+		return fmt.Errorf("open db: %w", err)
 	}
-	defer func() {
-		if sqlDB, derr := db.DB(); derr == nil {
-			_ = sqlDB.Close()
-		}
-	}()
 	if sqlDB, derr := db.DB(); derr == nil {
 		if perr := sqlDB.PingContext(ctx); perr != nil {
 			// 数据库不可用不阻断启动（dev 演示形态：链路/限流仍可用，业务路径降级）
@@ -160,22 +162,23 @@ func main() {
 		}
 	}
 
-	var cache *drivers.Cache
-	if pcfg.Trace.On("cache") {
-		if cache, err = drivers.NewCache(ctx, h, serviceName, "", true); err != nil {
-			// 缓存不可用降级：限流器 nil（fail-open），主链路继续
-			logger.Warn("cache open failed (rate-limit disabled)", logx.Err(err))
-			cache = nil
-		}
+	// 【红线】Trace.On(kind) 的语义是"这类操作是否入链"，**不是**"要不要构造组件"。
+	// 此前两者被混为一谈，后果是致命且无声的：Trace.On("mq") 一关，producer
+	// 就变成 nil，OutboxRunner.Start 直接 return —— 下单继续往 outbox 写
+	// status=0 的行却再无投递者，直到表无限堆积也没人报警。
+	// 正确做法：组件照常构造，开关只透传给 drivers 决定是否注册 OTel 回调。
+	cache, err := drivers.NewCache(ctx, h, serviceName, "", pcfg.Trace.On("cache"))
+	if err != nil {
+		// 缓存不可用降级：限流器 nil（fail-open），主链路继续
+		logger.Warn("cache open failed (rate-limit disabled)", logx.Err(err))
+		cache = nil
 	}
 
-	var producer mqx.Producer
-	if pcfg.Trace.On("mq") {
-		if producer, err = drivers.NewProducer(ctx, h, serviceName, true); err != nil {
-			// MQ 不可用降级：outbox 事件持续累积，Runner 未挂 producer 时跳过补发
-			logger.Warn("mq producer open failed (outbox not flushed)", logx.Err(err))
-			producer = nil
-		}
+	producer, err := drivers.NewProducer(ctx, h, serviceName, pcfg.Trace.On("mq"))
+	if err != nil {
+		// MQ 不可用同样要显式告警：outbox 会持续累积且不会被补发
+		logger.Warn("mq producer open failed (outbox events will accumulate unflushed)", logx.Err(err))
+		producer = nil
 	}
 
 	// ---------- 业务装配：repository → outbox → service → rpc ----------
@@ -186,9 +189,10 @@ func main() {
 	var productCli service.ProductClient
 	if target, terr := consul.Target(consulAgent, "srv-product"); terr == nil {
 		if cli, cerr := productclient.NewClient("Product", rpcx.BuildClientOptions(rpcx.ClientOptions{
-			ServiceName: serviceName,
-			Target:      target,
-			ConnType:    "short",
+			ServiceName:  serviceName,
+			Target:       target,
+			ConnType:     "short",
+			TraceEnabled: pcfg.Trace.Enabled,
 		})...); cerr == nil {
 			productCli = &productAdapter{cli: cli}
 		} else {
@@ -217,8 +221,9 @@ func main() {
 	// ---------- 5) rpcx 服务端 ----------
 	impl := &srco.Server{Svc: svc, Limiter: limiter}
 	svr := orderrpc.NewServer(impl, rpcx.BuildServerOptions(rpcx.ServerOptions{
-		ServiceName: serviceName,
-		Addr:        listenAddr,
+		ServiceName:  serviceName,
+		Addr:         listenAddr,
+		TraceEnabled: pcfg.Trace.Enabled,
 	})...)
 
 	srvErr := make(chan error, 1)
@@ -243,10 +248,19 @@ func main() {
 	_ = svr.Stop()
 	runner.Stop()
 	if producer != nil {
-		_ = producer.Close()
+		if cerr := producer.Close(); cerr != nil {
+			logger.Error("producer close failed", logx.Err(cerr))
+		}
 	}
 	if cache != nil {
-		_ = cache.Close()
+		if cerr := cache.Close(); cerr != nil {
+			logger.Error("cache close failed", logx.Err(cerr))
+		}
+	}
+	if sqlDB, derr := db.DB(); derr == nil {
+		if derr := sqlDB.Close(); derr != nil {
+			logger.Error("db close failed", logx.Err(derr))
+		}
 	}
 	if registered {
 		if derr := consul.Deregister(consulAgent, serviceName, listenAddr); derr != nil {
@@ -254,25 +268,28 @@ func main() {
 		}
 	}
 	// OTel flush 超时必须 ≥10s（BatchSpanProcessor 批量 5s，
-	// 已知坑：flush 未完成即退出会丢 span）
+	// 已知坑：flush 未完成即退出会丢 span）；放在所有会标 span 的资源之后
 	flushCtx, flushCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if serr := traceSetup.Shutdown(flushCtx); serr != nil {
 		logger.Error("tracing shutdown failed", logx.Err(serr))
 	}
 	flushCancel()
+	return nil
 }
 
 // openDB 经 dbx 官方 configx 入口打开 GORM（xmiddleware.sqlx.databases.srv-order）。
 // DSN 中的 ${HUBX_DB_PW} 由 expandDB 经 os.ExpandEnv 展开（见类型注释）。
 func openDB(h configx.Config, pcfg *pbconfig.Config, logger logx.Logger) (*gorm.DB, error) {
-	dbc, tracing, err := dbxconfig.LoadDBConfigFromConfigx(h, "mysql", serviceName)
+	dbc, _, err := dbxconfig.LoadDBConfigFromConfigx(h, "mysql", serviceName)
 	if err != nil {
 		return nil, fmt.Errorf("open db: load config: %w", err)
 	}
-	// 调用链开关取「统一开关 trace.db」与「官方段 enable_trace」的逻辑与：
-	// 两者都开才装 OTel 回调（Open），否则 OpenNoTrace（不注册回调，
-	// 即便全局有 TracerProvider 也不会产生 SQL span）
-	traceOn := pcfg.Trace.On("db") && (tracing == nil || tracing.Enabled)
+	// 调用链开关统一走 pkg/config 的单一入口 Trace.On("db")：已折总闸
+	// Enabled 与细分开关 DB（含官方段 xmiddleware.sqlx...enable_trace 裁决），
+	// 与 cache/mq 的 On("cache")/On("mq") 保持一致，不回读 dbx 原生
+	// tracing.enable_trace 双开关（统一层刻意覆盖之）。开则 Open（注册
+	// OTel 回调），关则 OpenNoTrace（即便全局有 TracerProvider 也不产生 SQL span）。
+	traceOn := pcfg.Trace.On("db")
 	exp := expandDB{base: dbc}
 	opts := []gorm.Option{
 		dbxorm.WithLogxLogger(logger, dbxorm.LogxLoggerConfig{

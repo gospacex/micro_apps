@@ -35,7 +35,9 @@ type Trace struct {
 	Enabled bool `mapstructure:"enabled" json:"enabled"`
 	// Exporter 导出目标：stdout / otlp / jaeger
 	Exporter string `mapstructure:"exporter" json:"exporter"`
-	// Endpoint 导出端点（jaeger:4317 OTLP gRPC）
+	// Endpoint 导出端点（OTLP/HTTP，对应 Jaeger/collector 的 4318 端口）。
+	// 由统一 trace 段（Nacos hubx.trace / 本地 trace 段）供给，
+	// 装配方（telemetry.Init）必须读本字段而非硬编码常量。
 	Endpoint string `mapstructure:"endpoint" json:"endpoint"`
 	// SampleRatio 采样率 0~1
 	SampleRatio float64 `mapstructure:"sample_ratio" json:"sample_ratio"`
@@ -72,6 +74,34 @@ type Switches interface {
 	IsSet(key string) bool
 	// GetBool 读取布尔值
 	GetBool(key string) bool
+}
+
+// TraceSource 统一 trace 段的来源句柄（configx.Config 天然满足）。
+// 双 dataId 形态下 primary = hubx.trace 句柄，fallback = 服务私有句柄。
+type TraceSource interface {
+	Switches
+	// Unmarshal 解出 key 段的原始内容（与 configx.Config.Unmarshal 同签名）
+	Unmarshal(key string, rawVal any) error
+}
+
+// ApplyTrace 统一 trace 段裁决（openspec unified-trace-switch 的落点）：
+//   - primary（Nacos hubx.trace 句柄，可为 nil）显式含 trace 段 → 单一事实源生效；
+//   - 否则 fallback（私有句柄）含 trace 段 → 本地段生效；
+//   - 都没有 → 保持 Default() 值。
+//
+// 三段正交回退（Resolve）始终对「实际提供 trace 段的句柄」做，保证
+// 「官方段仅在 trace.<kind> 未显式写出时生效」在两条来源下语义一致。
+func (c *Config) ApplyTrace(primary TraceSource, fallback Switches, instance string) {
+	var src Switches = fallback
+	if primary != nil && primary.IsSet("trace") {
+		src = primary
+	}
+	if src != nil {
+		if ts, ok := src.(TraceSource); ok && ts.IsSet("trace") {
+			_ = ts.Unmarshal("trace", &c.Trace)
+		}
+		c.Trace.Resolve(src, instance)
+	}
 }
 
 // SQLXTraceKey 官方段键：xmiddleware.sqlx.databases.<instance>.enable_trace
@@ -120,7 +150,7 @@ func Default() *Config {
 		Trace: Trace{
 			Enabled:     true,
 			Exporter:    "otlp",
-			Endpoint:    "jaeger:4317",
+			Endpoint:    "127.0.0.1:4318",
 			SampleRatio: 1,
 			DB:          true,
 			Cache:       true,
