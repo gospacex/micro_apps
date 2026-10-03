@@ -1,0 +1,27 @@
+# ============================================================
+# 零依赖验证路径：exporter=stdout（任务 18）
+# Nacos：dataId hubx.trace，group HUBX
+#
+# 用途：Jaeger / docker 六件套不可用时，仍能验证「分层 span 是否按预期产出」。
+# 切到本配置后，span 直接打到进程 stdout，终端逐行数即可，不依赖任何外部组件。
+#
+# 用法（灌进 Nacos 后重启服务；或直接改本地 config.yaml 的 trace 段）：
+#   curl -X POST 'http://127.0.0.1:8848/nacos/v1/cs/configs' \
+#     --data-urlencode 'dataId=hubx.trace' --data-urlencode 'group=HUBX' \
+#     --data-urlencode content@configs/trace.stdout.yaml
+#   bash scripts/bring-up.sh up --reload
+#
+# 两步走（README 同款说明）：
+#   1) 先 stdout 验证逻辑：span 命名 / 父子关系 / 分层是否对；
+#   2) 再切回 configs/trace.yaml（exporter: otlp）走 Jaeger 做可视化验收。
+# ============================================================
+
+trace:
+  enabled: true      # 总闸：关则 11 服务 0 span（含分层 span）
+  exporter: stdout   # stdout：打进程终端，不需要 collector
+  # stdout 模式下 endpoint 不参与导出（otelx 的 stdout exporter 不读端点），
+  # 这里保留是为了让「切回 otlp 时不用补字段」——改 exporter 一行即可。
+  endpoint: 127.0.0.1:4318
+  db: true           # SQL span（单表 CRUD / 事务 / JOIN）
+  cache: true        # 缓存命令 span
+  mq: true           # messaging span + Kafka traceparent 头写入

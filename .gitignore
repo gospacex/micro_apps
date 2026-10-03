@@ -62,3 +62,6 @@ data/
 *.local.yaml
 *.local.toml
 *.local.json
+
+# bring-up.sh 的构建产物目录（默认 <repo>/.hubx-bin）
+.hubx-bin/
