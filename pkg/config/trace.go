@@ -78,10 +78,37 @@ type Switches interface {
 
 // TraceSource 统一 trace 段的来源句柄（configx.Config 天然满足）。
 // 双 dataId 形态下 primary = hubx.trace 句柄，fallback = 服务私有句柄。
+//
+// 【为什么不用 Unmarshal("trace", &t)】hubx/configx 的 Nacos provider 把
+// YAML **展平成点分键**（flattenMap：`trace.enabled` / `trace.endpoint` …），
+// 段级 `Get("trace")` 恒为 nil——`Unmarshal("trace")` 直接报 key not found。
+// 2026-10-03 实测：11 服务因此从未读到过 hubx.trace，7 组合矩阵逐格同值。
+// 改为逐键读取后，JSON 形态（viper/apollo 提供嵌套 map）同样兼容——那些
+// provider 上 Get("trace.enabled") 走 getByPath 逐级查找，一样解得出来。
 type TraceSource interface {
 	Switches
-	// Unmarshal 解出 key 段的原始内容（与 configx.Config.Unmarshal 同签名）
-	Unmarshal(key string, rawVal any) error
+	// GetString 读字符串值（trace.exporter / trace.endpoint）
+	GetString(key string) string
+	// GetFloat64 读浮点值（trace.sample_ratio）
+	GetFloat64(key string) float64
+}
+
+// traceKeys 判定「trace 段是否显式存在」的探针键。
+//
+// 只需命中任一键即算存在：enabled 之外，也可能只写了 endpoint 或某个细分键。
+var traceKeys = []string{"enabled", "exporter", "endpoint", "sample_ratio", "db", "cache", "mq"}
+
+// hasTrace 判断句柄上是否显式写了 trace 段。
+func hasTrace(s Switches) bool {
+	if s == nil {
+		return false
+	}
+	for _, k := range traceKeys {
+		if s.IsSet("trace." + k) {
+			return true
+		}
+	}
+	return false
 }
 
 // ApplyTrace 统一 trace 段裁决（openspec unified-trace-switch 的落点）：
@@ -92,15 +119,51 @@ type TraceSource interface {
 // 三段正交回退（Resolve）始终对「实际提供 trace 段的句柄」做，保证
 // 「官方段仅在 trace.<kind> 未显式写出时生效」在两条来源下语义一致。
 func (c *Config) ApplyTrace(primary TraceSource, fallback Switches, instance string) {
-	var src Switches = fallback
-	if primary != nil && primary.IsSet("trace") {
+	var src TraceSource
+	switch {
+	case primary != nil && hasTrace(primary):
 		src = primary
+	default:
+		if ts, ok := fallback.(TraceSource); ok && hasTrace(ts) {
+			src = ts
+		}
 	}
 	if src != nil {
-		if ts, ok := src.(TraceSource); ok && ts.IsSet("trace") {
-			_ = ts.Unmarshal("trace", &c.Trace)
-		}
+		applyTraceFields(&c.Trace, src)
 		c.Trace.Resolve(src, instance)
+		return
+	}
+	// 没有任何 trace 段：只对 fallback 做官方段补位（保持 Default 打底值）
+	if fallback != nil {
+		c.Trace.Resolve(fallback, instance)
+	}
+}
+
+// applyTraceFields 逐键覆盖 trace 段字段：键显式写出才覆盖，未写出的保持
+// Default() 打底值（避免"配置里没写就被零值冲掉"）。
+func applyTraceFields(t *Trace, s TraceSource) {
+	if s.IsSet("trace.enabled") {
+		t.Enabled = s.GetBool("trace.enabled")
+	}
+	if s.IsSet("trace.exporter") {
+		t.Exporter = s.GetString("trace.exporter")
+	}
+	if s.IsSet("trace.endpoint") {
+		t.Endpoint = s.GetString("trace.endpoint")
+	}
+	if s.IsSet("trace.sample_ratio") {
+		if r := s.GetFloat64("trace.sample_ratio"); r > 0 {
+			t.SampleRatio = r
+		}
+	}
+	if s.IsSet("trace.db") {
+		t.DB = s.GetBool("trace.db")
+	}
+	if s.IsSet("trace.cache") {
+		t.Cache = s.GetBool("trace.cache")
+	}
+	if s.IsSet("trace.mq") {
+		t.MQ = s.GetBool("trace.mq")
 	}
 }
 

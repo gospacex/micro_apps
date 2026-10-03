@@ -172,35 +172,63 @@ func TestResolveNilSwitches(t *testing.T) {
 }
 
 // fakeTraceSource 内存实现 TraceSource。
+//
+// 刻意**只提供点分键**（trace.enabled / trace.db …）：hubx/configx 的 Nacos
+// provider 会把 YAML 展平成这种形态（flattenMap），单元测试必须与生产形态
+// 同构——此前用段级 Unmarshal("trace") 的 fake 掩盖了"Nacos 上段级读取恒
+// 失败"的缺陷，11 个服务因此从未读到过统一 trace 段。
 type fakeTraceSource struct {
-	set   map[string]bool
-	bools map[string]bool
-	raw   map[string]Trace
+	set     map[string]bool
+	bools   map[string]bool
+	strings map[string]string
+	floats  map[string]float64
 }
 
-func (f *fakeTraceSource) IsSet(key string) bool   { return f.set[key] }
-func (f *fakeTraceSource) GetBool(key string) bool { return f.bools[key] }
-func (f *fakeTraceSource) Unmarshal(key string, v any) error {
-	*(v.(*Trace)) = f.raw[key]
-	return nil
+func (f *fakeTraceSource) IsSet(key string) bool         { return f.set[key] }
+func (f *fakeTraceSource) GetBool(key string) bool       { return f.bools[key] }
+func (f *fakeTraceSource) GetString(key string) string   { return f.strings[key] }
+func (f *fakeTraceSource) GetFloat64(key string) float64 { return f.floats[key] }
+
+// traceKV 构造一组点分键（模拟 yaml 里显式写出的 trace 段）
+func traceKV(v map[string]bool) *fakeTraceSource {
+	return &fakeTraceSource{set: v, bools: v}
+}
+
+// TestHasTraceDetectsFlattenedKeys 展平形态下必须仍能判定「trace 段存在」。
+func TestHasTraceDetectsFlattenedKeys(t *testing.T) {
+	if !hasTrace(traceKV(map[string]bool{"trace.endpoint": true})) {
+		t.Fatal("只写 trace.endpoint 也应算 trace 段存在")
+	}
+	if hasTrace(traceKV(map[string]bool{"xmiddleware.cachex.driver": true})) {
+		t.Fatal("只有官方段不应算 trace 段存在")
+	}
+	var nilSrc TraceSource // 真·nil 接口（typed-nil 指针不等于 nil 接口）
+	if hasTrace(nilSrc) {
+		t.Fatal("nil 句柄不应算存在")
+	}
 }
 
 func TestApplyTracePrimaryWins(t *testing.T) {
 	c := Default()
 	primary := &fakeTraceSource{
-		set: map[string]bool{"trace": true, "trace.db": true},
-		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "otlp", Endpoint: "127.0.0.1:4318", DB: false, Cache: true, MQ: true}},
+		set:     map[string]bool{"trace.enabled": true, "trace.exporter": true, "trace.db": true},
+		bools:   map[string]bool{"trace.enabled": true, "trace.db": false},
+		strings: map[string]string{"trace.exporter": "otlp", "trace.endpoint": "127.0.0.1:4318"},
 	}
 	fallback := &fakeTraceSource{
-		set: map[string]bool{"trace": true},
-		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "stdout", Endpoint: "", DB: true, Cache: true, MQ: true}},
+		set:     map[string]bool{"trace.enabled": true, "trace.exporter": true},
+		bools:   map[string]bool{"trace.enabled": true},
+		strings: map[string]string{"trace.exporter": "stdout"},
 	}
 	c.ApplyTrace(primary, fallback, "bff-app")
 	if c.Trace.DB {
 		t.Fatal("hubx.trace trace.db=false must win over fallback")
 	}
 	if c.Trace.Exporter != "otlp" {
-		t.Fatal("trace section must come from primary (hubx.trace)")
+		t.Fatalf("trace section must come from primary (hubx.trace): got %q", c.Trace.Exporter)
+	}
+	if c.Trace.Endpoint != "127.0.0.1:4318" {
+		t.Fatalf("endpoint must come from primary: got %q", c.Trace.Endpoint)
 	}
 }
 
@@ -208,12 +236,13 @@ func TestApplyTraceFallbackWhenPrimaryAbsent(t *testing.T) {
 	c := Default()
 	primary := &fakeTraceSource{set: map[string]bool{}} // 无 trace 段
 	fallback := &fakeTraceSource{
-		set: map[string]bool{"trace": true},
-		raw: map[string]Trace{"trace": {Enabled: true, Exporter: "stdout", Endpoint: "", DB: true, Cache: true, MQ: true}},
+		set:     map[string]bool{"trace.enabled": true, "trace.exporter": true},
+		bools:   map[string]bool{"trace.enabled": true},
+		strings: map[string]string{"trace.exporter": "stdout"},
 	}
 	c.ApplyTrace(primary, fallback, "bff-app")
 	if c.Trace.Exporter != "stdout" {
-		t.Fatal("fallback local trace section must apply when hubx.trace absent")
+		t.Fatalf("fallback local trace section must apply when hubx.trace absent: got %q", c.Trace.Exporter)
 	}
 }
 
@@ -222,14 +251,37 @@ func TestApplyTraceOfficialSegmentFallback(t *testing.T) {
 	primary := &fakeTraceSource{set: map[string]bool{}} // 无 trace 段
 	fallback := &fakeTraceSource{
 		set: map[string]bool{
-			"trace":                 true,
+			"trace.enabled":         true,
+			"trace.exporter":        true,
 			SQLXTraceKey("bff-app"): true,
 		}, // trace 段无 db 键 → 回退官方段
-		bools: map[string]bool{SQLXTraceKey("bff-app"): false},
-		raw:   map[string]Trace{"trace": {Enabled: true, Exporter: "otlp", Endpoint: "127.0.0.1:4318", DB: true, Cache: true, MQ: true}},
+		bools:   map[string]bool{"trace.enabled": true, SQLXTraceKey("bff-app"): false},
+		strings: map[string]string{"trace.exporter": "otlp"},
 	}
 	c.ApplyTrace(primary, fallback, "bff-app")
 	if c.Trace.DB {
 		t.Fatal("official segment enable_trace=false must fall through when trace.db unset")
+	}
+}
+
+// TestApplyTraceAgainstFlattenedNacosShape 回归锚点：展平键必须能覆盖
+// Enabled / Exporter / Endpoint / SampleRatio 四个字段（否则矩阵 7 组合同值）。
+func TestApplyTraceAgainstFlattenedNacosShape(t *testing.T) {
+	c := Default()
+	src := &fakeTraceSource{
+		set: map[string]bool{
+			"trace.enabled": true, "trace.exporter": true,
+			"trace.endpoint": true, "trace.sample_ratio": true,
+		},
+		bools:   map[string]bool{"trace.enabled": false},
+		strings: map[string]string{"trace.exporter": "stdout", "trace.endpoint": "127.0.0.1:4318"},
+		floats:  map[string]float64{"trace.sample_ratio": 0.5},
+	}
+	c.ApplyTrace(src, nil, "srv-order")
+	if c.Trace.Enabled {
+		t.Fatal("trace.enabled=false 必须生效（总闸关 → 0 span）")
+	}
+	if c.Trace.Exporter != "stdout" || c.Trace.Endpoint != "127.0.0.1:4318" || c.Trace.SampleRatio != 0.5 {
+		t.Fatalf("展平键未覆盖：%+v", c.Trace)
 	}
 }
