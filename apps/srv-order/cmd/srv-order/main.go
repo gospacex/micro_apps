@@ -307,6 +307,10 @@ func openDB(h configx.Config, pcfg *pbconfig.Config, logger logx.Logger) (*gorm.
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// 【必须】dbx 在 traceOn 分支会自建 TracerProvider 并注册到全局（端点取
+	// SDK 默认 localhost:4318 +TLS），把装配层装好的 provider 顶掉，导致走
+	// otel.GetTracerProvider() 的组件（RPC client span）只建不导。夺回。
+	telemetry.InstallGlobal()
 	// 连接池直接用官方 loader 解析出的 PoolConfig（已过 Validate，零值已补默认）
 	if sqlDB, perr := db.DB(); perr == nil {
 		if p := dbc.GetPool(); p != nil {

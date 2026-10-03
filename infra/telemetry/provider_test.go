@@ -16,6 +16,7 @@ import (
 	"github.com/gospacex/traceflag"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -201,5 +202,42 @@ func TestInitUsesSampleRatio(t *testing.T) {
 	defer span.End()
 	if span.IsRecording() {
 		t.Fatal("traceidratio=0.5 must drop the deterministic high trace ID")
+	}
+}
+
+// TestInstallGlobalRecoversFromSDKOverride 钉死「SDK 抢走全局 provider」这个坑。
+//
+// 复现路径（2026-10-02 实测）：cachex / dbx 初始化时各自 otel.SetTracerProvider
+// 注册自己的 provider（端点取 SDK 默认 localhost:4318 + TLS），把装配层装好的
+// provider 顶掉。此时 otel.GetTracerProvider() 取到的 tracer 建得出 span、
+// 注入得出 traceparent，却永远导不出去——下游同 trace_id，父 span id 却指向
+// 一个不存在的 span，Jaeger 上断成两棵子树。极难查。
+//
+// 断言：InstallGlobal 之后，全局 provider 必须重新指向 Init 认定的那个。
+func TestInstallGlobalRecoversFromSDKOverride(t *testing.T) {
+	traceflag.SetEnabled(true)
+	t.Cleanup(func() { traceflag.SetEnabled(true) })
+
+	s, err := Init(context.Background(), Options{
+		ServiceName: "t", Enabled: true, Exporter: "none",
+	})
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	defer func() { _ = s.Shutdown(context.Background()) }()
+
+	want := otel.GetTracerProvider()
+
+	// 模拟 SDK 抢注：换一个陌生 provider 进全局。
+	intruder := sdktrace.NewTracerProvider()
+	defer func() { _ = intruder.Shutdown(context.Background()) }()
+	otel.SetTracerProvider(intruder)
+	if otel.GetTracerProvider() == want {
+		t.Fatal("前置条件不成立：模拟抢注后全局 provider 未变")
+	}
+
+	InstallGlobal()
+	if got := otel.GetTracerProvider(); got != want {
+		t.Fatalf("InstallGlobal 未夺回全局 provider：got %T, want %T", got, want)
 	}
 }

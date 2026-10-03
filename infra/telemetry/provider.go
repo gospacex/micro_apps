@@ -46,6 +46,26 @@ func tracerName(service string) string {
 // Init 后按开关指向真实 SDK provider 或显式 noop provider。
 var current trace.Tracer = otel.GetTracerProvider().Tracer("hubx.app")
 
+// installed 由 Init 记下的「本装配层认定的」全局 provider。
+//
+// 存在理由（2026-10-02 实测，bff→srv 断链的根因）：cachex 与 dbx 在各自的
+// 初始化路径里都会调 otel.SetTracerProvider() 注册**它们自己**的 provider，
+// 且端点取 SDK 默认值 localhost:4318 + TLS——于是本装配层装好的 provider
+// 被静默顶掉。后果极隐蔽：业务分层 span（走本包 Tracer）照常落地，而所有
+// 从 otel.GetTracerProvider() 取 tracer 的组件（pkg/rpcx 的 RPC client
+// span、kitex 的 obs-opentelemetry 套件）建得出 span、注入得出 traceparent，
+// 却永远导不出去——下游同 trace_id、父 span id 指向一个不存在的 span。
+//
+// 因此驱动装配完毕后必须调 InstallGlobal 把全局夺回来。
+var installed trace.TracerProvider = otel.GetTracerProvider()
+
+// InstallGlobal 把 Init 认定的 provider 重新装到 OTel 全局。
+//
+// 调用点：infra/drivers 的缓存/MQ 工厂，以及各服务 openDB 之后——凡是会
+// 触发 SDK 自行注册全局 provider 的装配动作之后都要补一次。
+// 未调过 Init 时这里是 no-op（installed 仍是全局 delegate，装回去等价）。
+func InstallGlobal() { otel.SetTracerProvider(installed) }
+
 // Options 调用链初始化选项
 type Options struct {
 	// ServiceName 服务名（rpcx 服务端/客户端 ServiceName 保持一致，11 服务各自传入）
@@ -101,6 +121,8 @@ func Init(ctx context.Context, opts Options) (*Setup, error) {
 		// 显式 noop provider：不依赖 otel global（global 可能已被先前 enabled 的 Init 污染）
 		tr := noop.NewTracerProvider().Tracer(name)
 		current = tr
+		installed = noop.NewTracerProvider()
+		otel.SetTracerProvider(installed)
 		return &Setup{Enabled: false, Tracer: tr, shutdown: noopShutdown}, nil
 	}
 
@@ -151,6 +173,8 @@ func Init(ctx context.Context, opts Options) (*Setup, error) {
 		_ = p.Close()
 		tr := noop.NewTracerProvider().Tracer(name)
 		current = tr
+		installed = noop.NewTracerProvider()
+		otel.SetTracerProvider(installed)
 		return &Setup{Enabled: false, Tracer: tr, shutdown: noopShutdown}, nil
 	}
 
@@ -163,6 +187,7 @@ func Init(ctx context.Context, opts Options) (*Setup, error) {
 	// 同 trace_id、父 span id 却指向不存在的 span，是最难查的一类断链。
 	// 这里显式安装，不依赖 otelx 的内部行为。
 	otel.SetTracerProvider(p.TracerProvider())
+	installed = p.TracerProvider()
 
 	// provider.Close 签名是 func() error（otelx 内部固定 5s 超时），
 	// 这里包一层转成 Setup.shutdown 的形态；入参 ctx 只用于提前判定已取消。

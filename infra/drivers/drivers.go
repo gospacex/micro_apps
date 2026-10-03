@@ -24,6 +24,8 @@ import (
 	// 驱动自注册（blank import）
 	_ "github.com/gospacex/cachex/redis"
 	_ "github.com/gospacex/mqx/kafka"
+
+	"hubx/micro_apps/infra/telemetry"
 )
 
 // Cache 缓存资源句柄
@@ -91,6 +93,12 @@ func NewCache(ctx context.Context, h configx.Config, name, driver string, traceO
 	if err != nil {
 		return nil, fmt.Errorf("drivers: open cache %q (driver=%s): %w", name, cfg.Driver, err)
 	}
+	// 【必须】cachex 在 SetTracingConfig(Enabled) 打开时会自建 TracerProvider
+	// 并 otel.SetTracerProvider 注册到全局，端点取它的默认值 localhost:4318
+	// +TLS —— 把装配层装好的 provider 静默顶掉，凡是走 otel.GetTracerProvider()
+	// 取 tracer 的组件（RPC client span、kitex 套件）从此只建不导。
+	// 夺回全局的动作放在本包而不是 11 个 main 里，避免漏改。
+	telemetry.InstallGlobal()
 	return &Cache{Instances: insts}, nil
 }
 
