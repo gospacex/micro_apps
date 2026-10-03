@@ -183,7 +183,10 @@ func run() error {
 
 	// ---------- 业务装配：repository → outbox → service → rpc ----------
 	repo := repository.NewOrderRepository(db)
-	runner := service.NewOutboxRunner(repo, producer, logger)
+	// 显式传 Trace.On("mq")：变参缺省 true 会把「mq 不入链」的正确性寄托在
+	// 「写入侧 traceparent 必为空串」这个间接前提上——一旦写入侧哪天改成无条件
+	// 写头，mq 关也会照打 messaging span，而这种退化在矩阵里才看得出来。
+	runner := service.NewOutboxRunner(repo, producer, logger, pcfg.Trace.On("mq"))
 	runner.Start()
 
 	var productCli service.ProductClient

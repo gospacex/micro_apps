@@ -47,12 +47,20 @@ SERVICES = [
 ]
 
 # span 名前缀 → 归类（Jaeger 上按此计数）
+# 顺序有意义：先匹配更具体的前缀。
+#
+# messaging_own 与 messaging 必须分开：mqx SDK 自带的 `messaging.<driver>.<op>`
+# span 是**无条件创建**的（见 ../mqx/FEATURE_MATRIX.md：EnableTrace 未生效），
+# 只有 traceflag 全局闸能掐掉；本仓自产出的 `messaging.outbox.send` 才是真正
+# 受 Trace.On("mq") 门控的那个。混在一个桶里会让「mq 关」这格永远不为 0，
+# 看上去像缺陷，其实是 SDK 行为——分开记，结论才诚实。
 PREFIXES = [
     ("handler", "handler."),
     ("service", "service."),
     ("repository", "repository."),
     ("rpc_client", "client."),
     ("db", "db."),
+    ("messaging_own", "messaging.outbox."),
     ("messaging", "messaging."),
 ]
 
@@ -180,12 +188,24 @@ def fire_requests(token=None):
     """固定请求集：主链路聚合 + 单 srv 面 + 报表。第二次 /home 走缓存命中。"""
     token = token or make_jwt("1")
     out = []
-    for path in ("/api/app/home", "/api/app/home", "/api/app/products", "/api/app/orders/report"):
+    # 下单是必须的：只有 POST /orders 才会让 srv-order 写 outbox 并投
+    # order.completed.v1，messaging.* span 才可能出现——否则 mq 关/开两轮
+    # 都是 0，矩阵里那格是个空断言（看着 PASS，其实什么都没验证）。
+    plan = [
+        ("GET", "/api/app/home", None),
+        ("GET", "/api/app/home", None),  # 第二次走展示层缓存命中
+        ("GET", "/api/app/products", None),
+        ("GET", "/api/app/orders/report", None),
+        ("POST", "/api/app/orders", '{"items":[{"product_id":1,"quantity":1,"unit_price":9900}]}'),
+    ]
+    for method, path, body in plan:
         url = GATEWAY + path
         try:
-            req = urllib.request.Request(url, headers={
+            data = body.encode() if body else None
+            req = urllib.request.Request(url, data=data, method=method, headers={
                 "Authorization": "Bearer " + token,
                 "X-User-Id": "1",
+                "Content-Type": "application/json",
             })
             with OPENER.open(req, timeout=20) as r:
                 out.append((path, r.status))
@@ -208,7 +228,18 @@ def count_spans(service, since_us):
     counts["other"] = 0
     total = 0
     for tr in data.get("data", []):
+        procs = tr.get("processes", {})
+        # 【必须】按 processID 归属到本服务再计数。Jaeger 的
+        # /api/traces?service=X 返回的是「含 X 的整条 trace」，里面带着上下游
+        # 所有服务的 span——不按 processID 过滤会把同一条 trace 在每个服务
+        # 名下各数一遍（实测：gateway 与 bff-app 行数完全一样，就是这个坑）。
+        mine = {}
+        for pid, p in procs.items():
+            if p.get("serviceName") == service:
+                mine[pid] = True
         for s in tr.get("spans", []):
+            if not mine.get(s.get("processID")):
+                continue
             total += 1
             name = s.get("operationName", "")
             for key, pref in PREFIXES:
@@ -253,11 +284,13 @@ def main():
             restart(repo)
             log("      11 服务已重载")
         time.sleep(3)
+        # 计数窗口必须从「打请求之前」起算：若用一个回溯窗口，会连同上一轮
+        # 组合留下的 span 一起算进来，矩阵逐格就失去意义（实测坑：总闸关那轮
+        # 反而比全开多）。
+        since = int(time.time() * 1_000_000)
         reqs = fire_requests(None)
         log(f"      请求集：{reqs}")
         time.sleep(args.flush)
-
-        since = int((time.time() - 180) * 1_000_000)
         row = {}
         for svc in SERVICES:
             c = count_spans(svc, since)
@@ -320,8 +353,12 @@ def main():
                      f"{'成立（归零且其余未受影响）' if combo_kind(3, 'db') == 0 and combo_kind(3, 'service') > 0 else '需排查'}")
     c5, c7 = matrix.get(5), matrix.get(7)
     if c5:
-        concl.append(f"3. mq 细分开关：messaging.* 全开 {combo_kind(1, 'messaging')} 个 → mq 关 {combo_kind(5, 'messaging')} 个 → "
-                     f"{'成立（mq 关即不产出、消息不带 traceparent 头）' if combo_kind(5, 'messaging') == 0 else '需排查'}")
+        own1, own5 = combo_kind(1, "messaging_own"), combo_kind(5, "messaging_own")
+        concl.append(f"3. mq 细分开关：本仓自产出 messaging.outbox.* 全开 {own1} 个 → mq 关 {own5} 个 → "
+                     f"{'成立（归零，且消息不带 traceparent 头）' if own5 == 0 else '需排查'}")
+        concl.append(f"   （注：mqx SDK 自带 messaging.kafka.* 全开 {combo_kind(1, 'messaging')} 个 → mq 关 "
+                     f"{combo_kind(5, 'messaging')} 个，不随细分键关闭——SDK 无条件建 span，"
+                     f"只有 traceflag 全局闸能掐，见 ../mqx/FEATURE_MATRIX.md）")
     if c7:
         concl.append(f"4. 官方段回退：省略细分键 C6 db/mq 计数 {combo_kind(6, 'db')}/{combo_kind(6, 'messaging')}，"
                      f"官方段关 C7 {combo_kind(7, 'db')}/{combo_kind(7, 'messaging')} → "

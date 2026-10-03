@@ -145,7 +145,8 @@ func run() error {
 
 	// ---------- 业务装配：repository → outbox → service → rpc ----------
 	repo := repository.NewCouponRepository(db)
-	runner := service.NewOutboxRunner(repo, producer, logger)
+	// 同 srv-order：显式传 Trace.On("mq")，不依赖变参缺省。
+	runner := service.NewOutboxRunner(repo, producer, logger, pcfg.Trace.On("mq"))
 	runner.Start()
 	svc := service.NewCouponService(repo, runner, pcfg.Trace.Enabled, logger)
 
