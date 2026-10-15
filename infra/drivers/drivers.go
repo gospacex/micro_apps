@@ -17,6 +17,7 @@ package drivers
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/gospacex/cachex"
 	"github.com/gospacex/configx"
@@ -112,14 +113,40 @@ func (c *Cache) Instance(name string) cachex.Cache {
 
 // NewProducer 创建消息生产者（kafka）。
 //
-// kafka 驱动的消息自带 Topic 优先（resolveTopic），Writer 默认 topic 取
-// cfg.Consumer.Topic（官方契约把发布/消费 topic 都挂在 consumer 段）；
-// 发布侧 topic 由业务侧在 Message.Topic 填写。traceOn：调用方传入
-// （= Trace.On("mq")），写 CallChainEnabled + EnableTrace 两份。
+// 返回值是 topicRouter（见下）：业务侧照旧在 Message.Topic 上写目标 topic，
+// 路由层按 topic 懒装配一个底层 producer 并把 Message.Topic 清空后再交给
+// 驱动——原因见 topicRouter 的注释（kafka-go 禁止 Writer 与 Message 同时带
+// topic，而 mqx 的 Writer 一定自带 topic）。多 topic 场景（outbox 行自带
+// topic / job 的 DLQ 回发 / coupon 的 points.granted.v1）因此全部可用。
+//
+// traceOn：调用方传入（= Trace.On("mq")），写 CallChainEnabled + EnableTrace 两份。
 func NewProducer(ctx context.Context, h configx.Config, name string, traceOn bool) (mqx.Producer, error) {
 	if h == nil {
 		return nil, fmt.Errorf("drivers: producer requires configx handle")
 	}
+	base, err := readProducerConfig(h, name)
+	if err != nil {
+		return nil, err
+	}
+	applyTrace(base, traceOn)
+	return &topicRouter{cfg: base, traceOn: traceOn}, nil
+}
+
+// NewProducerWithTopic 同 NewProducer，但把发布 topic 固定为 topic
+// （返回值只往这一个 topic 发，Message.Topic 会被路由层清空）。
+// 与 NewConsumerWithTopic 成对存在：某些调用点需要在装配期就钉死 topic。
+func NewProducerWithTopic(ctx context.Context, h configx.Config, name, topic string, traceOn bool) (mqx.Producer, error) {
+	p, err := NewProducer(ctx, h, name, traceOn)
+	if err != nil {
+		return nil, err
+	}
+	r := p.(*topicRouter)
+	r.fixed = topic
+	return r, nil
+}
+
+// readProducerConfig 读 mqx 实例配置（供 NewProducer / topicRouter 复用）
+func readProducerConfig(h configx.Config, name string) (*mqx.Config, error) {
 	cfg := mqx.ReadConfigFromConfigx(h, name)
 	if cfg.Driver == "" {
 		cfg.Driver = "kafka"
@@ -127,12 +154,145 @@ func NewProducer(ctx context.Context, h configx.Config, name string, traceOn boo
 	if len(cfg.Brokers) == 0 {
 		return nil, fmt.Errorf("drivers: mq instance %q missing brokers", orDefault(name))
 	}
-	applyTrace(cfg, traceOn)
-	p, err := mqx.NewProducer(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("drivers: new producer (instance=%s): %w", orDefault(name), err)
+	return cfg, nil
+}
+
+// topicRouter 按 Message.Topic 懒装配底层 producer 的路由层。
+//
+// 【必须存在的理由（实测坑，勿回退）】mqx 的 kafka producer 把 Writer.Topic
+// 取成 cfg.Consumer.Topic，且 mqx 的配置归一化会把空 topic 兜成
+// "default-topic"（interface.go:263）——也就是说 Writer.Topic **永不为空**。
+// 而 kafka-go 的 Writer 一旦自带 Topic，Message.Topic 再非空就直接报
+//
+//	"kafka.(*Writer): Topic must not be specified for both Writer and Message"
+//
+// 症状极隐蔽：调用链日志照打 "call chain: kafka send"、send span 照常产出，
+// 实际一条都没发出去——outbox 行静默重试到 retry_count=10 后被放弃
+// （status=2），Kafka 里空空如也、下游 job 永不消费。
+//
+// 于是"一个 producer 只能发一个 topic"成了 SDK 硬约束，而本仓偏偏有 4 处
+// 多 topic 发送。路由层把约束收在一处：对外仍按 Message.Topic 语义工作，
+// 对内一 topic 一 Writer（send 前把 Message.Topic 清空）。
+type topicRouter struct {
+	cfg     *mqx.Config
+	traceOn bool
+	fixed   string // 非空：忽略 Message.Topic，固定发往该 topic
+
+	mu       sync.Mutex
+	byTopic  map[string]mqx.Producer
+	fallback mqx.Producer // Message.Topic 为空时的兜底（走配置默认 topic）
+}
+
+// producerFor 取该 topic 的底层 producer（懒装配 + 缓存）
+func (t *topicRouter) producerFor(topic string) (mqx.Producer, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	key := topic
+	if t.fixed != "" {
+		key = t.fixed
 	}
+	if key == "" {
+		if t.fallback == nil {
+			var err error
+			if t.fallback, err = mqx.NewProducer(t.cfg); err != nil {
+				return nil, err
+			}
+		}
+		return t.fallback, nil
+	}
+	if p, ok := t.byTopic[key]; ok {
+		return p, nil
+	}
+	cfg := *t.cfg // 逐 topic 复制一份：Writer.Topic 是 per-producer 的
+	cfg.Consumer.Topic = key
+	p, err := mqx.NewProducer(&cfg)
+	if err != nil {
+		return nil, err
+	}
+	if t.byTopic == nil {
+		t.byTopic = map[string]mqx.Producer{}
+	}
+	t.byTopic[key] = p
 	return p, nil
+}
+
+// Send 单条发送：按 Message.Topic 选 producer，并把 Topic 清空后下发
+func (t *topicRouter) Send(ctx context.Context, msg *mqx.Message) error {
+	if msg == nil {
+		return fmt.Errorf("drivers: nil message")
+	}
+	p, err := t.producerFor(msg.Topic)
+	if err != nil {
+		return fmt.Errorf("drivers: producer for topic %q: %w", msg.Topic, err)
+	}
+	out := *msg
+	out.Topic = "" // Writer 已绑定 topic，再带就报双 topic 错误
+	return p.Send(ctx, &out)
+}
+
+// SendBatch 批量发送：先按 topic 分组，再逐组下发（组内同样清空 Topic）
+func (t *topicRouter) SendBatch(ctx context.Context, msgs []*mqx.Message) error {
+	groups := map[string][]*mqx.Message{}
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		groups[m.Topic] = append(groups[m.Topic], m)
+	}
+	for topic, group := range groups {
+		p, err := t.producerFor(topic)
+		if err != nil {
+			return fmt.Errorf("drivers: producer for topic %q: %w", topic, err)
+		}
+		outs := make([]*mqx.Message, 0, len(group))
+		for _, m := range group {
+			out := *m
+			out.Topic = ""
+			outs = append(outs, &out)
+		}
+		if err := p.SendBatch(ctx, outs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Close 关闭全部懒装配出来的底层 producer
+func (t *topicRouter) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var firstErr error
+	for topic, p := range t.byTopic {
+		if err := p.Close(); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("drivers: close producer %q: %w", topic, err)
+		}
+	}
+	if t.fallback != nil {
+		if err := t.fallback.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	t.byTopic = nil
+	t.fallback = nil
+	return firstErr
+}
+
+// Name 驱动名（取底层配置，与 mqx.Producer 契约一致）
+func (t *topicRouter) Name() string { return t.cfg.Driver }
+
+// HealthCheck 全部底层 producer 健康才健康（未装配时视为健康：尚未建连）
+func (t *topicRouter) HealthCheck() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, p := range t.byTopic {
+		if !p.HealthCheck() {
+			return false
+		}
+	}
+	if t.fallback != nil && !t.fallback.HealthCheck() {
+		return false
+	}
+	return true
 }
 
 // NewConsumer 创建消息消费者（kafka）。

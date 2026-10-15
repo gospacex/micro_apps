@@ -37,11 +37,11 @@
 
 ## 3. 文档与验收脚本
 
-- [ ] 3.1 README + PROMPT：拓扑图、装配顺序、开关设计、JOIN 红线、SDK 边界、排查清单（现象/根因/对策）、7 节结构 PROMPT（对应 Task 14）
-- [ ] 3.2 scripts/bring-up.sh：依赖序启动 11 服务 + `--services`/`--reload` 过滤，从零启动全绿（对应 Task 15）
-- [ ] 3.3 scripts/e2e-flow.py：主链路 ≥6 服务同 trace + messaging 同 trace 断言与 span 树输出（对应 Task 16）
-- [ ] 3.4 scripts/trace-matrix.py：11×7 全量矩阵 + 组合 5 无 traceparent 头断言 + matrix-report.md 落盘（对应 Task 17）
-- [ ] 3.5 config.stdout.yaml 零依赖验证路径：exporter stdout 下终端可逐行数 span（对应 Task 18）
+- [x] 3.1 README + PROMPT：拓扑图、装配顺序、开关设计、JOIN 红线、SDK 边界、排查清单（现象/根因/对策）、8 节结构 PROMPT（对应 Task 14）— 2026-10-03 已落 README.md / PROMPT.md
+- [x] 3.2 scripts/bring-up.sh：依赖序启动 11 服务 + `--services`/`--reload` 过滤（对应 Task 15）— 2026-10-03 落脚本并实测 11 服务全绿；重载坑（pid 记到 wrapper + 端口未释放）已修
+- [x] 3.3 scripts/e2e-flow.py：主链路 ≥6 服务同 trace + span 树输出（对应 Task 16）— 2026-10-03 实测 6 服务 / 70 span 同 trace，证据 docs/verify/e2e-evidence.md；messaging 段本轮未触发 Kafka，标记 SKIP
+- [x] 3.4 scripts/trace-matrix.py：11×7 全量矩阵 + 组合 5 断言 + matrix-report.md 落盘（对应 Task 17）— 2026-10-03 全跑 7 轮：C1 全开 106 span / C2 总闸关 0 / db 28→0 / 本仓 messaging.outbox 5→0；mqx SDK 自带 messaging.kafka.* 不受细分键门控（SDK 无条件建 span），报表分桶记录
+- [x] 3.5 configs/trace.stdout.yaml 零依赖验证路径：exporter stdout 下终端可逐行数 span（对应 Task 18）— 2026-10-03 落配置 + README 两步走说明
 
 ## 4. 验证与收尾
 

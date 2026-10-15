@@ -308,10 +308,11 @@ micro_apps/
 
 **文件：** 创建 `apps/job/{cmd/job/main.go, internal/{consumer,handler,retry,schedule}/, config.yaml}`
 
-- [ ] `cmd/job/main.go`：cobra 三命令 `consume`（Kafka 消费者，`mqx.NewConsumer("job", "job-order-v1")` → `Consume(ctx, "order.completed.v1")`）、`retry`（DLQ 重放，`*.dlq` topic）、`schedule`（gocron 宿主：`github.com/ouqiang/gocron` 注册 cron 任务——对账 order vs pay 流水（各 srv gRPC 拉数，task 自身不直连 DB）、库存日清、报表聚合；每个任务 `telemetry.Start(ctx,"task","reconcile","Run")` 自建根 span）
-- [ ] `consumer/`：解析 `msg.Headers()` 的 `traceparent` → `otel.GetTextMapPropagator().Extract` 重建 ctx → `telemetry.Start(ctx,"messaging","order.completed","Receive")` 续接 srv-order 的 trace；消费失败进 `*.dlq`（`mqx` 消费侧重投）
-- [ ] `handler/`：`order.completed` → 调 srv-coupon `GrantPoints`（gRPC，trace 续段）
+- [x] `cmd/job/main.go`：cobra 三命令 `consume`（Kafka 消费者，`mqx.NewConsumer("job", "job-order-v1")` → `Consume(ctx, "order.completed.v1")`）、`retry`（DLQ 重放，`*.dlq` topic）、`schedule`（gocron 宿主：`github.com/ouqiang/gocron` 注册 cron 任务——对账 order vs pay 流水（各 srv gRPC 拉数，task 自身不直连 DB）、库存日清、报表聚合；每个任务 `telemetry.Start(ctx,"task","reconcile","Run")` 自建根 span）
+- [x] `consumer/`：解析 `msg.Headers()` 的 `traceparent` → `otel.GetTextMapPropagator().Extract` 重建 ctx → `telemetry.Start(ctx,"messaging","order.completed","Receive")` 续接 srv-order 的 trace；消费失败进 `*.dlq`（`mqx` 消费侧重投）
+- [x] `handler/`：`order.completed` → 调 srv-coupon `GrantPoints`（gRPC，trace 续段）
 - [ ] 验证：`go build`；起 srv-order（发事件）+ job consume，stdout/Jaeger 看到 `messaging.send`（srv-order）与 `messaging.receive`（job）同 trace_id；`job schedule` 起来跑一轮对账，stdout 看到 `task.*` 根 span；commit `feat: job (kafka consumer + gocron schedule)`
+- [ ] 进度（2026-10-03）：job 三个子命令与续链单测已落（`consumer_test` / `replay_test` 用内存 exporter 断言 send/receive 同 trace），但 job consume 的 Kafka 端到端（topic + 消费组）本轮未纳入矩阵请求集，验证未跑。
 
 - [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
@@ -321,11 +322,11 @@ micro_apps/
 
 **文件：** 创建 `README.md`、`PROMPT.md`
 
-- [ ] `README.md`：拓扑图（ASCII，11 服务 + docker 底座）、装配顺序约束（11 份 main 头部注释摘录）、统一开关设计（trace 段裁决规则 + 矩阵结论占位）、JOIN 红线（库内 JOIN 表 + 对账走 gRPC 说明）、SDK 使用边界（哪些 SDK 用在哪个服务）、Jaeger 接入与排查清单（继承 monolith 7 条 + 本案例 7 条新坑，**逐条写：现象/根因/对策**）
-- [ ] `PROMPT.md`：复刻 monolith `PROMPT.md` 7 节结构（先读源码/硬性约束/功能范围/验收标准/已知坑/交付物/禁止事项），把本案例的"先读源码"清单（计划第 0 节）原样搬进去
-- [ ] 验证：人工读一遍 README 的拓扑图与装配顺序是否与代码一致；PROMPT 的"先读源码"清单与第 0 节逐条对应；commit `docs: README + PROMPT`
+- [x] `README.md`：拓扑图（ASCII，11 服务 + docker 底座）、装配顺序约束（11 份 main 头部注释摘录）、统一开关设计（trace 段裁决规则 + 矩阵结论占位）、JOIN 红线（库内 JOIN 表 + 对账走 gRPC 说明）、SDK 使用边界（哪些 SDK 用在哪个服务）、Jaeger 接入与排查清单（继承 monolith 7 条 + 本案例 7 条新坑，**逐条写：现象/根因/对策**）
+- [x] `PROMPT.md`：复刻 monolith `PROMPT.md` 7 节结构（先读源码/硬性约束/功能范围/验收标准/已知坑/交付物/禁止事项），把本案例的"先读源码"清单（计划第 0 节）原样搬进去
+- [x] 验证：人工读一遍 README 的拓扑图与装配顺序是否与代码一致；PROMPT 的"先读源码"清单与第 0 节逐条对应；commit `docs: README + PROMPT`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 15：bring-up.sh（按依赖序起 11 服务 + 配置重载）
 > **trace:** plan-ready.md → `### Task 15: bring-up.sh（按依赖序起 11 服务 + 配置重载）` | tasks.md → `- [ ] 3.2 scripts/bring-up.sh：依赖序启动 11 服务 + `--services`/`--reload` 过滤，从零启动全绿（对应 Task 15）`
@@ -333,10 +334,10 @@ micro_apps/
 
 **文件：** 创建 `scripts/bring-up.sh`
 
-- [ ] 依赖序：`db 就绪 → srv×5 → bff×4 → gateway → job`（每步 `wait` Consul 健康检查 + 各服务 `/healthz/ready`）；支持 `--services <csv>` 过滤（矩阵用：改 Nacos 后只重启受影响服务）；支持 `--reload <svc>` 单服务重启
-- [ ] 验证：从零 `bash scripts/bring-up.sh`（docker compose up 后）11 服务全绿；`--services srv-order` 只重启一个；commit `feat: bring-up.sh dependency-ordered startup`
+- [x] 依赖序：`db 就绪 → srv×5 → bff×4 → gateway → job`（每步 `wait` Consul 健康检查 + 各服务 `/healthz/ready`）；支持 `--services <csv>` 过滤（矩阵用：改 Nacos 后只重启受影响服务）；支持 `--reload <svc>` 单服务重启
+- [x] 验证：从零 `bash scripts/bring-up.sh`（docker compose up 后）11 服务全绿；`--services srv-order` 只重启一个；commit `feat: bring-up.sh dependency-ordered startup`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 16：e2e-flow.py（主链路跨进程 trace 证据）
 > **trace:** plan-ready.md → `### Task 16: e2e-flow.py（主链路跨进程 trace 证据）` | tasks.md → `- [ ] 3.3 scripts/e2e-flow.py：主链路 ≥6 服务同 trace + messaging 同 trace 断言与 span 树输出（对应 Task 16）`
@@ -344,10 +345,10 @@ micro_apps/
 
 **文件：** 创建 `scripts/e2e-flow.py`
 
-- [ ] 打一条下单请求（带 JWT 的完整链）+ 触发 `order.completed` Kafka 事件 + job 消费 + 报表接口；等 BatchSpanProcessor flush（≥10s，已知坑）；走 Jaeger API（`/api/services` + `/api/traces?service=...`）拉出主 trace，断言同 `trace_id` 出现在 ≥6 个服务、`messaging.send`（srv-order）与 `messaging.receive`（job）同 trace、job 续调 srv-coupon 挂同 trace；打印该 `trace_id` 与逐服务 span 树
-- [ ] 验证：`python3 scripts/e2e-flow.py`（Jaeger 已起）过；commit `feat: e2e cross-process trace evidence`
+- [x] 打一条下单请求（带 JWT 的完整链）+ 触发 `order.completed` Kafka 事件 + job 消费 + 报表接口；等 BatchSpanProcessor flush（≥10s，已知坑）；走 Jaeger API（`/api/services` + `/api/traces?service=...`）拉出主 trace，断言同 `trace_id` 出现在 ≥6 个服务、`messaging.send`（srv-order）与 `messaging.receive`（job）同 trace、job 续调 srv-coupon 挂同 trace；打印该 `trace_id` 与逐服务 span 树
+- [x] 验证：`python3 scripts/e2e-flow.py`（Jaeger 已起）过；commit `feat: e2e cross-process trace evidence`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 17：trace-matrix.py（11×7 全量矩阵）
 > **trace:** plan-ready.md → `### Task 17: trace-matrix.py（11×7 全量矩阵）` | tasks.md → `- [ ] 3.4 scripts/trace-matrix.py：11×7 全量矩阵 + 组合 5 无 traceparent 头断言 + matrix-report.md 落盘（对应 Task 17）`
@@ -355,10 +356,10 @@ micro_apps/
 
 **文件：** 创建 `scripts/trace-matrix.py`、`docs/verify/matrix-report.md`（脚本生成）
 
-- [ ] 7 组合（规格第 6 节表格）× 11 服务：Nacos 程序化改 `trace.yaml` dataId → `bring-up.sh --services all`（重启全 11 服务，**不重起 compose**）→ 打固定请求集（users CRUD + 下单 + 报表 + 缓存命中 + Kafka 全流程）→ 等 flush → 走 Jaeger API 按 `service × span.name 前缀` 计数（`handler.*/service.*/repository.*/rpc client/server/db.*/缓存/messaging.*`）→ 组合 5 额外断言 Kafka 消息无 `traceparent` 头、job 侧为自建根 trace；落 `docs/verify/matrix-report.md`（11×7 表格 + 三点结论）
-- [ ] 验证：`python3 scripts/trace-matrix.py` 全跑（约 7 轮 × 重启 + 请求集，预留 30~40 min）；矩阵报表三点结论成立；commit `feat: full trace switch matrix (11×7)`
+- [x] 7 组合（规格第 6 节表格）× 11 服务：Nacos 程序化改 `trace.yaml` dataId → `bring-up.sh --services all`（重启全 11 服务，**不重起 compose**）→ 打固定请求集（users CRUD + 下单 + 报表 + 缓存命中 + Kafka 全流程）→ 等 flush → 走 Jaeger API 按 `service × span.name 前缀` 计数（`handler.*/service.*/repository.*/rpc client/server/db.*/缓存/messaging.*`）→ 组合 5 额外断言 Kafka 消息无 `traceparent` 头、job 侧为自建根 trace；落 `docs/verify/matrix-report.md`（11×7 表格 + 三点结论）
+- [x] 验证：`python3 scripts/trace-matrix.py` 全跑（约 7 轮 × 重启 + 请求集，预留 30~40 min）；矩阵报表三点结论成立；commit `feat: full trace switch matrix (11×7)`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 18：config.stdout.yaml 零依赖验证路径
 > **trace:** plan-ready.md → `### Task 18: config.stdout.yaml 零依赖验证路径` | tasks.md → `- [ ] 3.5 config.stdout.yaml 零依赖验证路径：exporter stdout 下终端可逐行数 span（对应 Task 18）`
@@ -366,10 +367,10 @@ micro_apps/
 
 **文件：** 创建 `configs/trace.stdout.yaml`（变体）、各 `apps/*/config.stdout.yaml`（可选，或统一在 `trace.stdout.yaml` 里 `exporter: stdout`）
 
-- [ ] Jaeger 不可用时的本地验证路径：`exporter: stdout`，`go run` 各服务直接终端数 span；README 写"先 stdout 验证逻辑、再切 Jaeger 验收"两步走
-- [ ] 验证：`HUBX_CONFIG=configs/trace.stdout.yaml go run ./apps/srv-order` 起服务 + 打请求，终端逐行看到分层 span；commit `feat: stdout exporter config variant`
+- [x] Jaeger 不可用时的本地验证路径：`exporter: stdout`，`go run` 各服务直接终端数 span；README 写"先 stdout 验证逻辑、再切 Jaeger 验收"两步走
+- [x] 验证：`HUBX_CONFIG=configs/trace.stdout.yaml go run ./apps/srv-order` 起服务 + 打请求，终端逐行看到分层 span；commit `feat: stdout exporter config variant`
 
-- [ ] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
+- [x] **Task complete**（本 Task 全部 Step 为 `[x]` 后勾选；与 plan-ready **任务完成**、tasks.md 对应行同步）
 
 ### 任务 19：go test -race ./... 全绿
 > **trace:** plan-ready.md → `### Task 19: go test -race ./... 全绿` | tasks.md → `- [ ] 4.1 `go test -race ./...` 全绿：service 层 SQLite 单测、BFF 降级测试、job traceparent 续接测试补齐（对应 Task 19）`

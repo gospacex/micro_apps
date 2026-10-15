@@ -1,9 +1,9 @@
 // Package handler bff-admin HTTP 层：Hertz 路由调用 service 编排，并用 envelope
 // 输出统一响应。
 //
-// 管理端隔离：业务路由全部挂在独立路由组 /admin 下（与 C 端 BFF 的 /users、
-// /orders 等路径互不相干），组内统一挂 adminGuard 中间件校验网关透传的身份
-// 与角色头——BFF 不二次验签，只读 Header。
+// 管理端隔离：业务路由全部挂在独立路由组下（组前缀见 adminPrefix，网关侧前缀
+// /api/admin 由 gateway 转发时剥掉），组内统一挂 adminGuard 中间件校验网关透传
+// 的身份与角色头——BFF 不二次验签，只读 Header。
 package handler
 
 import (
@@ -26,8 +26,15 @@ const (
 	headerRoles = "X-User-Roles"
 	// roleAdmin 允许访问管理端路由组的角色。
 	roleAdmin = "admin"
-	// adminPrefix 管理端独立路由组前缀（与 C 端路由物理隔离）。
-	adminPrefix = "/admin"
+	// adminPrefix 管理端路由组前缀。
+	//
+	// 取 "/" 而非 "/admin"：网关路由表前缀是 /api/admin，转发时整段剥掉
+	// （gateway/internal/proxy.Forward 的 TrimPrefix），BFF 收到的是
+	// /dashboard —— 若本服务再挂 /admin 组，外部就得打
+	// /api/admin/admin/dashboard 才通（已实测 404），命名空间重复。
+	// 管理端隔离改由两处保证：网关前缀（C 端 /api/app|web|mini 进不来）
+	// + 组内 adminGuard 校验角色头（直连 :8094 也躲不掉）。
+	adminPrefix = "/"
 )
 
 // API HTTP 处理器集合。
@@ -44,8 +51,10 @@ func NewAPI(svc *service.Aggregator, logger logx.Logger) *API {
 	return &API{Svc: svc, Log: logger}
 }
 
-// Register 注册路由：只读接口全部收在 /admin 管理端路由组内，组外不暴露任何
-// 业务路径（/healthz 等探针由 webx 自挂，与本组无关）。
+// Register 注册路由：只读接口全部收在管理端路由组内（组前缀 adminPrefix，
+// 网关已剥掉 /api/admin，故组内路径即 /dashboard 这种裸路径），组内统一挂
+// adminGuard 中间件——组外不暴露任何业务路径（/healthz 等探针由 webx 自挂，
+// 与本组无关）。
 func Register(engine *route.Engine, api *API) {
 	admin := engine.Group(adminPrefix, api.adminGuard)
 	admin.GET("/dashboard", api.Dashboard)

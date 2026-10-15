@@ -221,10 +221,54 @@ srv-user    db.query
    会出现一条 `traces export: Post "https://localhost:4318/..."`。这是 SDK 侧限制，
    不影响本仓的缓存 span（`service.display.get` 由本仓自产出，同 trace 正常落地）。
 
-4. **跨库 JOIN 禁止**：4 表 JOIN（srv-order 报表）只发生在 order_db 内。跨域数据一律走
+4. **mqx SDK 自带 `messaging.kafka.*` span 是无条件创建的**：`EnableTrace` /
+   `CallChainEnabled` 对它不生效（见 `../mqx/FEATURE_MATRIX.md`），只有 traceflag 全局闸
+   能掐。因此矩阵里「mq 关」那格的 messaging 计数不为 0——真正受 `Trace.On("mq")` 门控
+   的是本仓自产出的 `messaging.outbox.send`，它归零。两者在报表里分桶记录。
+
+5. **job 的 Kafka 端到端（send→receive 同 trace）尚未在真实环境跑通**：单测已覆盖
+   （`consumer_test.go` / `replay_test.go` 用内存 exporter 断言续链），但 job 的
+   `consume` 子命令需要 topic 就绪 + 消费组，本轮未纳入矩阵请求集。
+
+6. **跨库 JOIN 禁止**：4 表 JOIN（srv-order 报表）只发生在 order_db 内。跨域数据一律走
    gRPC 只读接口，对账在 job 内存比对。
 
----
+7. **Nacos 配置在进程里是"点分键"，不是嵌套段（已修，勿回退）**：hubx/configx 的
+   Nacos provider 把 YAML **展平**成 `trace.enabled` / `trace.db` 这类点分键，
+   段级 `Unmarshal("trace", &t)` 恒 key not found。症状极具迷惑性：`hubx.trace`
+   看着是单一事实源，实则**从不生效**——7 组合开关矩阵逐格同值、总闸关那一轮照样
+   55 个 span 就是这个坑。对策：`pkg/config` 改逐键 `GetString/GetFloat64` 覆盖
+   （`hasTrace` / `applyTraceFields`），`TraceSource` 接口不再需要 `Unmarshal`。
+
+8. **producer 的 Writer 不能自带 topic（已修，勿回退）**：mqx 的 kafka producer
+   把 `Writer.Topic` 取成 `cfg.Consumer.Topic`（SDK 侧 producer/consumer 共用
+   consumer 段的 topic，未配 consumer 段时还拿 `producer.topic` 兜底），而
+   kafka-go 的 Writer 一旦自带 Topic，`Message.Topic` 再非空就直接报
+   `Topic must not be specified for both Writer and Message`。症状同样隐蔽：
+   调用链日志照打 "call chain: kafka send"、send span 照常产出，实际一条都没发
+   出去——outbox 行静默重试到 `retry_count=10` 后被放弃（`status=2`），Kafka 里
+   空空如也、下游 job 永不消费。对策：`drivers.NewProducer` 里显式
+   `cfg.Consumer.Topic = ""`，topic 一律由业务侧在 `Message.Topic` 上逐条指定
+   （多 topic 场景必需：outbox 行自带 topic / job 的 DLQ 回发 / coupon 的
+   points.granted.v1）。
+
+9. **起服务的进程会被调用方回收，起停与请求必须在同一次调用内完成**：
+   `bring-up.sh` 起的进程在启动它的 shell / 脚本退出后随进程组被回收。分成两次
+   调用（先 up、再 curl）只会得到 `Connection refused`。这就是 `e2e-flow.py` /
+   `trace-matrix.py` 都在脚本内部自己调 `bring-up.sh` 的原因。
+
+10. **Jaeger 的 `/api/services` 会混入非应用服务名**：`cachex`（SDK 自带 provider
+    的 service.name，见第 3 条）、`jaeger-all-in-one`（Jaeger 自身）、以及外部
+    注入 traceparent 时冒出来的外部服务名（如 `e2e-helper`）。11 个应用服务名
+    之外多出这几个是预期的，不要当成"多起了一个服务"。
+
+11. **`/api/traces?service=X` 返回的是整条 trace，不是"该服务的 span"**：按 service
+    过滤后仍会拿到同 trace 的兄弟 span。按服务计数必须自己按
+    `processes[pid].serviceName` 归属（`trace-matrix.py` 的 `count_spans`）。
+
+12. **容器内连不上 Kafka**：compose 里 Kafka 的 advertised listener 指向宿主端口
+    （容器内 9092、宿主 19093），所以 `docker exec ... kafka-topics.sh` 一律
+    `Node may not be available`。要探 topic 得从宿主侧连 `127.0.0.1:19093`。
 
 ## 8. 排查清单
 

@@ -65,3 +65,7 @@ data/
 
 # bring-up.sh 的构建产物目录（默认 <repo>/.hubx-bin）
 .hubx-bin/
+
+# Python 脚本缓存（scripts/*.py 由 trace-matrix.py 等生成）
+__pycache__/
+*.pyc

@@ -92,6 +92,20 @@ selected_services() {
   done
 }
 
+# 端口占用探测：stop 之后必须等端口真正释放再 start，否则
+# 「杀掉了 wrapper、二进制还占着端口」会让重载后的进程 bind 失败（实测坑）。
+port_in_use() {
+  [ "$1" = "-" ] && return 1
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+wait_port_free() { # wait_port_free <port> <seconds>
+  local port="$1" i=0 n="${2:-25}"
+  [ "$port" = "-" ] && return 0
+  while port_in_use "$port" && [ "$i" -lt "$n" ]; do sleep 1; i=$((i+1)); done
+  ! port_in_use "$port"
+}
+
 pid_file() { printf '%s/%s.pid' "$RUN_DIR" "$1"; }
 
 is_running() {
@@ -111,18 +125,29 @@ build_one() {
 }
 
 start_one() {
-  local svc="$1" kind="$2"
+  local svc="$1" kind="$2" port="$3"
   if is_running "$svc"; then log "  $svc already running (pid $(cat "$(pid_file "$svc")"))"; return 0; fi
   if [ -z "${HUBX_NO_BUILD:-}" ]; then build_one "$svc"; fi
   [ -x "$BIN_DIR/$svc" ] || die "binary missing: $BIN_DIR/$svc（先跑 build）"
+
+  # 重载场景先等端口释放（stop 可能只杀掉了 wrapper）
+  if port_in_use "$port"; then
+    log "  waiting port $port to be released ..."
+    pkill -f "$BIN_DIR/$svc" 2>/dev/null || true
+    wait_port_free "$port" 25 || die "$svc 端口 $port 仍被占用，先手工清理：lsof -nP -iTCP:$port -sTCP:LISTEN"
+  fi
 
   mkdir -p "$LOG_DIR" "$RUN_DIR"
   local logf="$LOG_DIR/$svc.log"
   # 【关键】必须从 apps/<svc> 目录启动：本地 config.yaml 是相对路径读取的，
   # 从仓库根启动会读不到配置（静默走 fallback，排障时极难定位）。
+  #
+  # exec 是必须的：不写 exec 时 bash 会为 `cd && nohup` 这条复合命令再 fork
+  # 一层，$! 记到的是那层 wrapper 的 pid——stop 时杀掉 wrapper，真正的二进制
+  # 还占着端口，重载必然 bind: address already in use。
   local args=""
   [ "$svc" = "job" ] && args="$HUBX_JOB_MODE"
-  ( cd "$REPO_ROOT/apps/$svc" && nohup "$BIN_DIR/$svc" $args >>"$logf" 2>&1 & echo $! > "$(pid_file "$svc")" )
+  ( cd "$REPO_ROOT/apps/$svc" && exec nohup "$BIN_DIR/$svc" $args >>"$logf" 2>&1 & echo $! > "$(pid_file "$svc")" )
   sleep 1
   if ! is_running "$svc"; then
     die "$svc 启动即退出，看日志：$logf"
@@ -160,6 +185,8 @@ stop_one() {
     local i=0
     while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 1; i=$((i+1)); done
     kill -9 "$pid" 2>/dev/null || true
+    # 兜底：pid 文件记的可能只是 wrapper，用二进制路径再清一次
+    pkill -f "$BIN_DIR/$svc" 2>/dev/null || true
     log "  stopped $svc (pid $pid)"
   else
     log "  $svc not running (stale pid file)"
@@ -182,7 +209,7 @@ cmd_up() {
       if [ "$reload" = "reload" ] && is_running "$svc"; then
         log "reload $svc"; stop_one "$svc"
       fi
-      start_one "$svc" "$kind"
+      start_one "$svc" "$kind" "$port"
       wait_ready "$svc" "$kind" "$port"
     done
   done
